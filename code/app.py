@@ -30,27 +30,39 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── CSS ────────────────────────────────────────────────────────────────────────
+# ── CSS — Light beige/brown/green theme ────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
 html,body,[class*="css"]{font-family:'DM Sans',sans-serif;}
 h1,h2,h3{font-family:'Syne',sans-serif!important;font-weight:800!important;}
-.stApp{background:#0a0e1a;color:#e8eaf0;}
-[data-testid="stSidebar"]{background:#0f1526!important;border-right:1px solid #1e2a45;}
-.metric-card{background:linear-gradient(135deg,#111827,#1a2235);border:1px solid #2d3a52;border-radius:14px;padding:18px 22px;margin:8px 0;}
-.meal-card{background:linear-gradient(135deg,#0d1625,#141f35);border:1px solid #243049;border-radius:16px;padding:20px;margin:10px 0;transition:border-color .2s;}
-.meal-card:hover{border-color:#4ade80;}
-.day-header{background:linear-gradient(90deg,#1a4731,#0d2818);border-left:4px solid #4ade80;border-radius:0 10px 10px 0;padding:10px 18px;margin:18px 0 8px 0;font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;color:#4ade80;}
-.excluded-tag{background:#2d1018;border:1px solid #7f1d1d;color:#fca5a5;border-radius:8px;padding:4px 10px;font-size:.78rem;display:inline-block;margin:2px 4px;}
-.included-tag{background:#0d2818;border:1px solid #166534;color:#4ade80;border-radius:8px;padding:4px 10px;font-size:.78rem;display:inline-block;margin:2px 4px;}
-.warn-tag{background:#2d2310;border:1px solid #92400e;color:#fbbf24;border-radius:8px;padding:4px 10px;font-size:.78rem;display:inline-block;margin:2px 4px;}
-.hero-title{font-family:'Syne',sans-serif;font-size:2.6rem;font-weight:800;background:linear-gradient(135deg,#4ade80,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.15;margin-bottom:.3rem;}
-.hero-sub{font-size:1.05rem;color:#64748b;margin-bottom:1.5rem;}
-.section-title{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;color:#e2e8f0;margin:24px 0 12px 0;padding-bottom:6px;border-bottom:1px solid #1e2a45;}
-.gen-timer{font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;}
-div[data-testid="stButton"]>button{background:linear-gradient(135deg,#16a34a,#0e7490)!important;color:white!important;border:none!important;border-radius:10px!important;font-family:'Syne',sans-serif!important;font-weight:700!important;font-size:1rem!important;padding:.6rem 1.8rem!important;}
+/* ── Base background: warm beige ── */
+.stApp{background:#f5f0e8;color:#2c1f0e;}
+[data-testid="stSidebar"]{background:#ede5d8!important;border-right:2px solid #c9b99a;}
+/* ── Sidebar text ── */
+[data-testid="stSidebar"] label,[data-testid="stSidebar"] .stMarkdown p{color:#3d2b1a!important;}
+/* ── Cards ── */
+.metric-card{background:linear-gradient(135deg,#fdf8f0,#f0e8d8);border:1px solid #c9b99a;border-radius:14px;padding:18px 22px;margin:8px 0;box-shadow:0 2px 8px rgba(101,67,33,.08);}
+.meal-card{background:linear-gradient(135deg,#fefcf8,#f7f0e4);border:1px solid #d4c4a8;border-radius:16px;padding:20px;margin:10px 0;transition:border-color .25s,box-shadow .25s;box-shadow:0 2px 8px rgba(101,67,33,.07);}
+.meal-card:hover{border-color:#6b8f47;box-shadow:0 4px 16px rgba(107,143,71,.18);}
+/* ── Day header ── */
+.day-header{background:linear-gradient(90deg,#e8f0dc,#f0eadc);border-left:4px solid #6b8f47;border-radius:0 10px 10px 0;padding:10px 18px;margin:18px 0 8px 0;font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;color:#3a5c1e;}
+/* ── Tags ── */
+.excluded-tag{background:#fde8e8;border:1px solid #d4a0a0;color:#8b2020;border-radius:8px;padding:4px 10px;font-size:.78rem;display:inline-block;margin:2px 4px;}
+.included-tag{background:#e8f5e0;border:1px solid #8db870;color:#3a5c1e;border-radius:8px;padding:4px 10px;font-size:.78rem;display:inline-block;margin:2px 4px;}
+.warn-tag{background:#fef3e0;border:1px solid #d4a857;color:#7a5a10;border-radius:8px;padding:4px 10px;font-size:.78rem;display:inline-block;margin:2px 4px;}
+/* ── Hero ── */
+.hero-title{font-family:'Syne',sans-serif;font-size:2.6rem;font-weight:800;background:linear-gradient(135deg,#4a7c28,#8b5e1a);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.15;margin-bottom:.3rem;}
+.hero-sub{font-size:1.05rem;color:#7a6048;margin-bottom:1.5rem;}
+.section-title{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;color:#3d2b1a;margin:24px 0 12px 0;padding-bottom:6px;border-bottom:2px solid #c9b99a;}
+.gen-timer{font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#3a5c1e;}
+/* ── Button ── */
+div[data-testid="stButton"]>button{background:linear-gradient(135deg,#4a7c28,#7a5020)!important;color:#fefcf8!important;border:none!important;border-radius:10px!important;font-family:'Syne',sans-serif!important;font-weight:700!important;font-size:1rem!important;padding:.6rem 1.8rem!important;}
 div[data-testid="stButton"]>button:hover{opacity:.88!important;}
+/* ── Streamlit overrides for light theme ── */
+.stTabs [data-baseweb="tab"]{color:#5a3e28!important;}
+.stTabs [aria-selected="true"]{color:#3a5c1e!important;border-bottom-color:#6b8f47!important;}
+details summary{color:#4a7c28!important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -309,7 +321,7 @@ def diversity_score(names):
 
 def generate_plan(df, conditions, allergens_set, diet, cuisines,
                   calorie_target, sex, age, custom_allergens,
-                  vectorizer, faiss_index, usda_api_key):
+                  vectorizer, faiss_index, usda_api_key, nutrient_focus=None):
     t0 = time.time()
     exclusions = []
     excluded_ids = set()
@@ -372,8 +384,17 @@ def generate_plan(df, conditions, allergens_set, diet, cuisines,
             unused = pool[~pool['name'].isin(used_names)]
             source = unused if len(unused) >= 3 else pool
             source = source.copy()
+            # Calorie proximity score (normalised 0-1, lower is better)
             source['_cal_diff'] = (source['calories'] - calorie_target * cal_split[slot]).abs()
-            source = source.sort_values('_cal_diff')
+            max_diff = source['_cal_diff'].max() or 1
+            source['_score'] = 1 - (source['_cal_diff'] / max_diff)
+            # Nutrient focus boost: add normalised value of each focused nutrient
+            if nutrient_focus:
+                for col in nutrient_focus:
+                    if col in source.columns:
+                        col_max = source[col].max() or 1
+                        source['_score'] += (source[col] / col_max) * 0.5  # weight per nutrient
+            source = source.sort_values('_score', ascending=False)
             top_n  = min(8, len(source))
             chosen = source.iloc[random.randint(0, max(0, top_n - 1))]
             plan[day][slot] = chosen.to_dict()
@@ -435,8 +456,8 @@ def plan_to_csv(plan):
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown('<div style="font-family:Syne,sans-serif;font-size:1.5rem;font-weight:800;color:#4ade80;margin-bottom:4px;">🥗 NutriAI</div>', unsafe_allow_html=True)
-    st.markdown('<div style="color:#64748b;font-size:.85rem;margin-bottom:18px;">Personalized 7-Day Meal Planner</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-family:Syne,sans-serif;font-size:1.5rem;font-weight:800;color:#4a7c28;margin-bottom:4px;">🥗 NutriAI</div>', unsafe_allow_html=True)
+    st.markdown('<div style="color:#7a6048;font-size:.85rem;margin-bottom:18px;">Personalized 7-Day Meal Planner</div>', unsafe_allow_html=True)
     st.divider()
 
     st.markdown("**👤 Personal Info**")
@@ -468,6 +489,28 @@ with st.sidebar:
     custom_allergens = [a.strip() for a in custom_raw.split(',') if a.strip()]
 
     st.divider()
+    st.markdown("**🎯 Nutrient Focus**")
+    st.caption("Boost your plan toward these nutrients — meals richer in your chosen nutrients will be ranked higher.")
+    NUTRIENT_FOCUS_OPTIONS = {
+        "Protein 💪":      "protein_g",
+        "Iron 🩸":         "iron_mg",
+        "Calcium 🦴":      "calcium_mg",
+        "Vitamin B12 ⚡":  "vitamin_b12_ug",
+        "Vitamin D ☀️":    "vitamin_d_iu",
+        "Zinc 🛡️":         "zinc_mg",
+        "Potassium 🍌":    "potassium_mg",
+        "Magnesium 🌿":    "magnesium_mg",
+        "Fiber 🌾":        "fiber_g",
+    }
+    focused_labels = st.multiselect(
+        "Prioritise nutrients (optional)",
+        options=list(NUTRIENT_FOCUS_OPTIONS.keys()),
+        default=[],
+        placeholder="e.g. Protein, Iron, Calcium..."
+    )
+    focused_nutrients = [NUTRIENT_FOCUS_OPTIONS[l] for l in focused_labels]
+
+    st.divider()
     st.markdown("**🔬 USDA API**")
     usda_key = st.text_input("USDA API key (optional)", value="", type="password",
                               placeholder="Get free key at fdc.nal.usda.gov")
@@ -492,13 +535,13 @@ st.markdown('<div class="hero-sub">Clinically-aware · Allergen-safe · 7-day pe
 # Technique badges
 c1,c2,c3,c4 = st.columns(4)
 with c1:
-    st.markdown('<div class="metric-card"><b style="color:#22d3ee">🔬 Bloom Filter</b><br><span style="color:#94a3b8;font-size:.82rem">BAX-423: Sketching — O(k) allergen exclusion</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-card"><b style="color:#2a7a8c">🔬 Bloom Filter</b><br><span style="color:#7a6048;font-size:.82rem">BAX-423: Sketching — O(k) allergen exclusion</span></div>', unsafe_allow_html=True)
 with c2:
-    st.markdown('<div class="metric-card"><b style="color:#a78bfa">🧠 TF-IDF + FAISS</b><br><span style="color:#94a3b8;font-size:.82rem">BAX-423: Embeddings — semantic meal ranking</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-card"><b style="color:#6a3fa8">🧠 TF-IDF + FAISS</b><br><span style="color:#7a6048;font-size:.82rem">BAX-423: Embeddings — semantic meal ranking</span></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown('<div class="metric-card"><b style="color:#f59e0b">⚙️ python-constraint</b><br><span style="color:#94a3b8;font-size:.82rem">Hard nutritional bounds per meal slot</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-card"><b style="color:#c8720a">⚙️ python-constraint</b><br><span style="color:#7a6048;font-size:.82rem">Hard nutritional bounds per meal slot</span></div>', unsafe_allow_html=True)
 with c4:
-    st.markdown(f'<div class="metric-card"><b style="color:#4ade80">🥘 USDA + Monash</b><br><span style="color:#94a3b8;font-size:.82rem">{len(df):,} foods · GI DB · NIH RDA · DASH</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><b style="color:#4a7c28">🥘 USDA + Monash</b><br><span style="color:#7a6048;font-size:.82rem">{len(df):,} foods · GI DB · NIH RDA · DASH</span></div>', unsafe_allow_html=True)
 
 st.divider()
 
@@ -509,7 +552,8 @@ if generate_btn:
             df, conditions, set(selected_allergens), diet,
             cuisines_final, calorie_target, sex_input, age,
             custom_allergens, vectorizer, faiss_index,
-            usda_key or USDA_API_KEY
+            usda_key or USDA_API_KEY,
+            nutrient_focus=focused_nutrients
         )
 
     if plan is None:
@@ -521,6 +565,7 @@ if generate_btn:
         'plan': plan, 'exclusions': exclusions, 'elapsed': elapsed,
         'daily_summaries': daily_summaries, 'div_score': div_sc,
         'calorie_target': calorie_target, 'sex_val': sex_input, 'age_val': age,
+        'focused_nutrients': focused_nutrients, 'focused_labels': focused_labels,
     })
 
 # ── Display ───────────────────────────────────────────────────────────────────────
@@ -584,29 +629,56 @@ if 'plan' in st.session_state:
 
                     recipe = get_recipe(name)
                     recipe_note = recipe.pop('_note', '')
-                    ing_list = ''.join(f'<li style="color:#94a3b8;font-size:.82rem;padding:2px 0">{i}</li>' for i in recipe['ingredients'])
-                    steps_list = ''.join(f'<li style="color:#94a3b8;font-size:.82rem;padding:3px 0">{s}</li>' for s in recipe['steps'])
+                    ing_list = ''.join(f'<li style="color:#5a3e28;font-size:.82rem;padding:2px 0">{i}</li>' for i in recipe['ingredients'])
+                    steps_list = ''.join(f'<li style="color:#5a3e28;font-size:.82rem;padding:3px 0">{s}</li>' for s in recipe['steps'])
+
+                    # Nutrient focus highlight
+                    fn = st.session_state.get('focused_nutrients', [])
+                    fl = st.session_state.get('focused_labels', [])
+                    FOCUS_DISPLAY = {
+                        'protein_g':       ('💪','protein_g','g protein'),
+                        'iron_mg':         ('🩸','iron_mg','mg iron'),
+                        'calcium_mg':      ('🦴','calcium_mg','mg calcium'),
+                        'vitamin_b12_ug':  ('⚡','vitamin_b12_ug','µg B12'),
+                        'vitamin_d_iu':    ('☀️','vitamin_d_iu','IU Vit D'),
+                        'zinc_mg':         ('🛡️','zinc_mg','mg zinc'),
+                        'potassium_mg':    ('🍌','potassium_mg','mg potassium'),
+                        'magnesium_mg':    ('🌿','magnesium_mg','mg magnesium'),
+                        'fiber_g':         ('🌾','fiber_g','g fiber'),
+                    }
+                    focus_html = ''
+                    if fn:
+                        pills = []
+                        for col in fn:
+                            if col in FOCUS_DISPLAY:
+                                icon, key, unit = FOCUS_DISPLAY[col]
+                                val = round(meal.get(key, 0), 1)
+                                pills.append(f'<span style="background:#e8f5e0;border:1.5px solid #6b8f47;color:#3a5c1e;border-radius:20px;padding:3px 10px;font-size:.78rem;font-weight:700">{icon} {val} {unit}</span>')
+                        if pills:
+                            focus_html = f'<div style="margin:6px 0 2px 0;display:flex;flex-wrap:wrap;gap:4px"><span style="color:#7a6048;font-size:.75rem;align-self:center">🎯 Focus: </span>{"".join(pills)}</div>'
+
                     st.markdown(f"""
 <div class="meal-card">
-  <div style="color:#94a3b8;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em">{slot}</div>
-  <div style="font-family:Syne,sans-serif;font-weight:700;font-size:1rem;color:#e2e8f0;margin:4px 0 2px 0">{name}</div>
-  <div style="color:#64748b;font-size:.8rem;margin-bottom:8px">🌍 {cuisine} &nbsp;·&nbsp; ⏱️ {recipe['prep_time']} prep &nbsp;·&nbsp; 🍳 {recipe['cook_time']} cook</div>
+  <div style="color:#8b7355;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em">{slot}</div>
+  <div style="font-family:Syne,sans-serif;font-weight:700;font-size:1rem;color:#2c1f0e;margin:4px 0 2px 0">{name}</div>
+  <div style="color:#7a6048;font-size:.8rem;margin-bottom:8px">🌍 {cuisine} &nbsp;·&nbsp; ⏱️ {recipe['prep_time']} prep &nbsp;·&nbsp; 🍳 {recipe['cook_time']} cook</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:.8rem;margin-bottom:8px">
-    <span style="color:#fbbf24">🔥 {cal} kcal</span>
-    <span style="color:#60a5fa">💪 {prot}g protein</span>
-    <span style="color:#a78bfa">🍞 {carbs}g carbs</span>
-    <span style="color:#34d399">🥑 {fat}g fat</span>
-    <span style="color:#f472b6">🌿 {fiber}g fiber</span>
-    <span style="color:#94a3b8">🧂 {sodium:.0f}mg Na</span>
+    <span style="color:#b8650a">🔥 {cal} kcal</span>
+    <span style="color:#3a6aad">💪 {prot}g protein</span>
+    <span style="color:#7a4fa8">🍞 {carbs}g carbs</span>
+    <span style="color:#2e7d52">🥑 {fat}g fat</span>
+    <span style="color:#b05a8a">🌿 {fiber}g fiber</span>
+    <span style="color:#7a6048">🧂 {sodium:.0f}mg Na</span>
   </div>
   <div style="margin-bottom:8px">{tag_html}{gi_badge}{fodmap_badge}</div>
+  {focus_html}
   <details style="margin-top:8px">
-    <summary style="cursor:pointer;color:#22d3ee;font-size:.85rem;font-weight:600;outline:none">📋 Ingredients & Recipe</summary>
+    <summary style="cursor:pointer;color:#4a7c28;font-size:.85rem;font-weight:600;outline:none">📋 Ingredients & Recipe</summary>
     <div style="margin-top:8px">
-      {f'<div style="color:#fbbf24;font-size:.75rem;margin-bottom:4px">ℹ️ {recipe_note}</div>' if recipe_note else ''}
-      <div style="color:#4ade80;font-size:.8rem;font-weight:600;margin-bottom:4px">🛒 Ingredients (serves {recipe['servings']})</div>
+      {f'<div style="color:#b8650a;font-size:.75rem;margin-bottom:4px">ℹ️ {recipe_note}</div>' if recipe_note else ''}
+      <div style="color:#4a7c28;font-size:.8rem;font-weight:600;margin-bottom:4px">🛒 Ingredients (serves {recipe['servings']})</div>
       <ul style="padding-left:16px;margin:0 0 10px 0">{ing_list}</ul>
-      <div style="color:#4ade80;font-size:.8rem;font-weight:600;margin-bottom:4px">👨‍🍳 Method</div>
+      <div style="color:#4a7c28;font-size:.8rem;font-weight:600;margin-bottom:4px">👨‍🍳 Method</div>
       <ol style="padding-left:16px;margin:0">{steps_list}</ol>
     </div>
   </details>
@@ -632,19 +704,23 @@ if 'plan' in st.session_state:
                         st.markdown(f'<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1e2a45"><span style="color:#94a3b8">{label}</span><span style="color:{color};font-weight:600">{val} {unit}</span></div>', unsafe_allow_html=True)
                 with col_mi:
                     st.markdown("**Micronutrients vs NIH RDA**")
+                    fn_tab = st.session_state.get('focused_nutrients', [])
                     for micro, flags in summary['rda_flags'].items():
                         if micro == 'sodium_mg': continue
-                        pct   = flags['pct']
-                        bar_c = '#4ade80' if pct>=80 else ('#fbbf24' if pct>=50 else '#f87171')
-                        icon  = '✅' if pct>=80 else ('⚠️' if pct>=50 else '❌')
+                        pct      = flags['pct']
+                        bar_c    = '#4a7c28' if pct>=80 else ('#c8920a' if pct>=50 else '#c0392b')
+                        icon     = '✅' if pct>=80 else ('⚠️' if pct>=50 else '❌')
+                        is_focus = micro in fn_tab
+                        star     = ' 🎯' if is_focus else ''
+                        border   = 'border-left:3px solid #6b8f47;padding-left:6px;' if is_focus else ''
                         st.markdown(f"""
-<div style="margin-bottom:8px">
+<div style="margin-bottom:8px;{border}">
   <div style="display:flex;justify-content:space-between;font-size:.8rem">
-    <span style="color:#94a3b8">{icon} {MICRO_LABELS.get(micro,micro)}</span>
-    <span style="color:{bar_c}">{flags['actual']}/{flags['rda']} ({pct:.0f}%)</span>
+    <span style="color:#3d2b1a;font-weight:{'700' if is_focus else '400'}">{icon} {MICRO_LABELS.get(micro,micro)}{star}</span>
+    <span style="color:{bar_c};font-weight:{'700' if is_focus else '400'}">{flags['actual']}/{flags['rda']} ({pct:.0f}%)</span>
   </div>
-  <div style="background:#1e2a45;border-radius:4px;height:6px;margin-top:3px">
-    <div style="width:{min(100,pct)}%;height:6px;background:{bar_c};border-radius:4px"></div>
+  <div style="background:#d4c4a8;border-radius:4px;height:{'8' if is_focus else '6'}px;margin-top:3px">
+    <div style="width:{min(100,pct)}%;height:{'8' if is_focus else '6'}px;background:{bar_c};border-radius:4px"></div>
   </div>
 </div>""", unsafe_allow_html=True)
 

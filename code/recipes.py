@@ -1,7 +1,19 @@
 """
 Recipe & Ingredient database for NutriAI.
 Each entry has: ingredients (with amounts), steps, prep_time, cook_time, servings.
+
+PERMANENT FIX: get_recipe() now calls the Anthropic API to generate a real recipe
+for any dish not found in the local database, eliminating the generic DEFAULT fallback.
 """
+
+import re, os, json
+
+# ─── Try to import requests for AI fallback ──────────────────────────────────
+try:
+    import requests as _req
+    _REQUESTS_OK = True
+except ImportError:
+    _REQUESTS_OK = False
 
 RECIPES = {
     # ─── INDIAN ───────────────────────────────────────────────────────────
@@ -88,6 +100,34 @@ RECIPES = {
             "Top with fresh coriander and serve."
         ]
     },
+    "Moong Dal": {
+        "prep_time": "10 min", "cook_time": "20 min", "servings": 1,
+        "ingredients": [
+            "½ cup moong dal (split yellow)", "2 cups water", "½ tsp turmeric",
+            "½ tsp cumin seeds", "1 tsp ginger (grated)", "1 tsp oil",
+            "salt to taste", "lemon juice", "fresh coriander"
+        ],
+        "steps": [
+            "Rinse moong dal and boil with water and turmeric 15–20 min until soft.",
+            "Heat oil, add cumin seeds and ginger, sauté 1 min.",
+            "Pour tempering into dal, stir well.",
+            "Add lemon juice, season with salt and garnish with coriander."
+        ]
+    },
+    "Moong Dal Soup": {
+        "prep_time": "10 min", "cook_time": "20 min", "servings": 1,
+        "ingredients": [
+            "½ cup moong dal (split yellow)", "2 cups water or light vegetable stock",
+            "½ tsp turmeric", "½ tsp cumin seeds", "1 tsp ginger (grated)",
+            "1 tsp oil", "salt to taste", "lemon juice", "fresh coriander"
+        ],
+        "steps": [
+            "Rinse moong dal and boil with water and turmeric 15–20 min until soft and soupy.",
+            "Heat oil, add cumin seeds and ginger, sauté 1 min until fragrant.",
+            "Pour tempering into the soup, stir well and add more water if needed.",
+            "Add lemon juice, season with salt and garnish with fresh coriander."
+        ]
+    },
     "Idli Sambar": {
         "prep_time": "5 min", "cook_time": "15 min", "servings": 1,
         "ingredients": [
@@ -157,6 +197,94 @@ RECIPES = {
             "Add lemon juice, cumin powder and chaat masala.",
             "Toss well, season with salt and pepper.",
             "Garnish with coriander and serve immediately."
+        ]
+    },
+    "Upma": {
+        "prep_time": "5 min", "cook_time": "15 min", "servings": 1,
+        "ingredients": [
+            "½ cup semolina (rava)", "1 cup water", "½ tsp mustard seeds",
+            "½ tsp cumin seeds", "1 green chili (optional)", "1 tsp oil",
+            "¼ cup mixed vegetables (peas, carrot)", "salt", "fresh coriander", "lemon juice"
+        ],
+        "steps": [
+            "Dry roast semolina in a pan 3 min until lightly golden. Set aside.",
+            "Heat oil, add mustard and cumin seeds. When they splutter, add chili and vegetables.",
+            "Pour in water, bring to boil. Add salt.",
+            "Stir in roasted semolina gradually, cook 3 min stirring continuously. Finish with lemon."
+        ]
+    },
+    "Aloo Gobi": {
+        "prep_time": "10 min", "cook_time": "20 min", "servings": 1,
+        "ingredients": [
+            "1 medium potato (cubed)", "1 cup cauliflower florets",
+            "½ tsp cumin seeds", "½ tsp turmeric", "½ tsp coriander powder",
+            "¼ tsp garam masala", "1 tsp oil", "salt", "fresh coriander"
+        ],
+        "steps": [
+            "Heat oil, add cumin seeds. Sauté 30s.",
+            "Add potato, cook 5 min. Add cauliflower and all spices.",
+            "Cover and cook on low heat 12–15 min, stirring occasionally.",
+            "Season with salt, garnish with coriander. Serve with roti."
+        ]
+    },
+    "Dal Tadka": {
+        "prep_time": "5 min", "cook_time": "25 min", "servings": 1,
+        "ingredients": [
+            "½ cup toor dal (split pigeon peas)", "2 cups water", "½ tsp turmeric",
+            "1 tsp ghee", "1 tsp cumin seeds", "2 dried red chilies",
+            "¼ tsp asafoetida (hing)", "salt", "fresh coriander"
+        ],
+        "steps": [
+            "Pressure cook dal with water and turmeric until soft (3 whistles or 20 min).",
+            "Mash dal slightly and season with salt.",
+            "Heat ghee, add cumin, dried chilies and hing — let sizzle 30s.",
+            "Pour tadka over dal and garnish with coriander."
+        ]
+    },
+
+    # ─── FRENCH ──────────────────────────────────────────────────────────
+    "Ratatouille": {
+        "prep_time": "10 min", "cook_time": "25 min", "servings": 1,
+        "ingredients": [
+            "1 zucchini (sliced into rounds)", "½ eggplant (diced)",
+            "1 bell pepper (sliced)", "2 tomatoes (diced)",
+            "1 tsp olive oil", "1 tsp herbes de Provence",
+            "1 clove garlic (minced — omit for IBS)", "salt and pepper", "fresh basil"
+        ],
+        "steps": [
+            "Heat oil in a wide pan, sauté garlic 1 min.",
+            "Add eggplant and bell pepper, cook 5 min.",
+            "Add zucchini and tomatoes, season with herbs, salt and pepper.",
+            "Simmer uncovered 15–18 min until vegetables are tender. Top with fresh basil."
+        ]
+    },
+    "French Onion Soup": {
+        "prep_time": "5 min", "cook_time": "30 min", "servings": 1,
+        "ingredients": [
+            "2 onions (thinly sliced — omit for IBS/GERD)", "2 cups beef or vegetable stock",
+            "1 tsp butter or olive oil", "½ tsp thyme", "1 bay leaf",
+            "1 slice GF bread (toasted)", "2 tbsp gruyère (optional — omit dairy-free)", "salt and pepper"
+        ],
+        "steps": [
+            "Cook onions in butter/oil on low heat 20 min, stirring often, until caramelised.",
+            "Add stock, thyme and bay leaf. Simmer 10 min. Season with salt and pepper.",
+            "Pour into an oven-safe bowl. Float toast on top, sprinkle cheese.",
+            "Grill 3 min until cheese is golden and bubbly. Remove bay leaf before serving."
+        ]
+    },
+    "Salade Niçoise": {
+        "prep_time": "10 min", "cook_time": "10 min", "servings": 1,
+        "ingredients": [
+            "1 can (120g) tuna in water (drained)", "2 eggs (hard-boiled)",
+            "1 cup mixed greens", "½ cup cherry tomatoes (halved — omit for GERD)",
+            "¼ cup green beans (blanched)", "6 olives", "1 tbsp capers",
+            "2 tbsp olive oil", "1 tsp Dijon mustard", "1 tsp lemon juice", "salt and pepper"
+        ],
+        "steps": [
+            "Hard-boil eggs 9 min, cool and halve. Blanch green beans 3 min.",
+            "Arrange greens on plate, top with tuna, eggs, tomatoes, beans, olives and capers.",
+            "Whisk olive oil, mustard, lemon juice, salt and pepper into dressing.",
+            "Drizzle over salad and serve immediately."
         ]
     },
 
@@ -598,9 +726,43 @@ RECIPES = {
         ]
     },
 
-    # ─── DEFAULT FALLBACK ────────────────────────────────────────────────
+    # ─── GREEK ───────────────────────────────────────────────────────────
+    "Greek Salad": {
+        "prep_time": "5 min", "cook_time": "0 min", "servings": 1,
+        "ingredients": [
+            "1 cup cherry tomatoes (halved — omit for GERD)", "½ cucumber (diced)",
+            "¼ cup Kalamata olives", "50g feta cheese (omit dairy-free)",
+            "¼ red onion (sliced thin — omit IBS)", "1 tbsp olive oil",
+            "1 tsp red wine vinegar", "½ tsp dried oregano", "salt and pepper"
+        ],
+        "steps": [
+            "Combine tomatoes, cucumber, olives and onion in a bowl.",
+            "Crumble feta on top.",
+            "Whisk olive oil, vinegar, oregano, salt and pepper.",
+            "Drizzle dressing over salad and toss gently."
+        ]
+    },
+
+    # ─── MIDDLE EASTERN ──────────────────────────────────────────────────
+    "Tabbouleh": {
+        "prep_time": "10 min", "cook_time": "0 min", "servings": 1,
+        "ingredients": [
+            "¼ cup quinoa (cooked and cooled — use instead of bulgur for GF)",
+            "1 cup fresh parsley (finely chopped)", "½ cup fresh mint (chopped)",
+            "1 tomato (diced — omit for GERD)", "½ cucumber (diced)",
+            "2 tbsp olive oil", "2 tbsp lemon juice", "salt and pepper"
+        ],
+        "steps": [
+            "Cook quinoa according to package, spread to cool completely.",
+            "Finely chop parsley and mint.",
+            "Combine quinoa, herbs, tomato and cucumber.",
+            "Dress with olive oil, lemon juice, salt and pepper. Toss and serve."
+        ]
+    },
+
+    # ─── DEFAULT FALLBACK (only used if AI generation fails) ─────────────
     "DEFAULT": {
-        "prep_time": "10 min", "cook_time": "20 min", "servings": 1,
+        "prep_time": "15 min", "cook_time": "20 min", "servings": 1,
         "ingredients": [
             "Main protein or base ingredient (as named in dish)",
             "Seasonal vegetables of choice",
@@ -617,26 +779,103 @@ RECIPES = {
     },
 }
 
+# ─── AI-powered recipe generation (permanent fix for unknown dishes) ──────────
+def _generate_recipe_with_ai(food_name: str) -> dict:
+    """
+    Call the Anthropic API to generate a real recipe for any dish
+    not found in the local RECIPES dictionary.
+    Returns a recipe dict or empty dict on failure.
+    """
+    if not _REQUESTS_OK:
+        return {}
+    try:
+        prompt = f"""Generate a simple, healthy recipe for: "{food_name}"
+
+Return ONLY valid JSON in exactly this format (no markdown, no extra text):
+{{
+  "prep_time": "X min",
+  "cook_time": "X min",
+  "servings": 1,
+  "ingredients": ["ingredient 1 with amount", "ingredient 2 with amount", "..."],
+  "steps": ["Step 1 instruction.", "Step 2 instruction.", "Step 3 instruction.", "Step 4 instruction."]
+}}
+
+Rules:
+- 4-8 ingredients with specific amounts
+- Exactly 4 steps
+- Healthy, realistic recipe for 1 person
+- If the dish name has a prefix like "Spicy", "Baked", "Grilled" etc, incorporate that cooking style
+- Return ONLY the JSON object, nothing else"""
+
+        resp = _req.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 500,
+                "messages": [{"role": "user", "content": prompt}]
+            },
+            timeout=10
+        )
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        text = "".join(b.get("text","") for b in data.get("content",[]) if b.get("type")=="text")
+        # Strip markdown fences if present
+        text = re.sub(r"```json|```", "", text).strip()
+        recipe = json.loads(text)
+        # Validate required keys
+        if all(k in recipe for k in ["prep_time","cook_time","servings","ingredients","steps"]):
+            return recipe
+        return {}
+    except Exception:
+        return {}
+
+
 def get_recipe(food_name: str) -> dict:
-    """Look up recipe by food name, with fuzzy fallback."""
-    # Exact match
+    """
+    Look up recipe by food name.
+    1. Exact match in local database
+    2. Strip common prefixes and try again
+    3. Partial / fuzzy match
+    4. AI-generated recipe (permanent fix — never shows generic DEFAULT)
+    5. DEFAULT fallback (last resort if AI also fails)
+    """
+    # 1. Exact match
     if food_name in RECIPES:
-        return RECIPES[food_name]
-    # Strip prefixes like "Spicy ", "Baked ", etc.
-    prefixes = ['Spicy ','Baked ','Steamed ','Grilled ','Roasted ','Herbed ',
-                'Creamy ','Tangy ','Light ','Classic ','Home-style ','Seasonal ',
-                'Fresh ','Warm ','Zesty ']
+        return dict(RECIPES[food_name])
+
+    # 2. Strip common adjective prefixes
+    prefixes = [
+        'Spicy ','Baked ','Steamed ','Grilled ','Roasted ','Herbed ',
+        'Creamy ','Tangy ','Light ','Classic ','Home-style ','Seasonal ',
+        'Fresh ','Warm ','Zesty ','Pan-fried ','Crispy ','Smoky ','Sweet ',
+        'Garlic ','Lemon ','Herb ','Simple ','Easy ','Quick ','Healthy ',
+    ]
     for pfx in prefixes:
         stripped = food_name.replace(pfx, '')
         if stripped in RECIPES:
             r = dict(RECIPES[stripped])
             r['_note'] = f"Recipe shown for base dish: {stripped}"
             return r
-    # Partial match
+
+    # 3. Partial / fuzzy match
     name_lower = food_name.lower()
     for key, recipe in RECIPES.items():
+        if key == "DEFAULT":
+            continue
         if key.lower() in name_lower or name_lower in key.lower():
             r = dict(recipe)
             r['_note'] = f"Recipe shown for similar dish: {key}"
             return r
-    return RECIPES["DEFAULT"]
+
+    # 4. AI-generated recipe — permanent fix for any unrecognised dish
+    ai_recipe = _generate_recipe_with_ai(food_name)
+    if ai_recipe:
+        ai_recipe['_note'] = f"Recipe generated for: {food_name}"
+        return ai_recipe
+
+    # 5. Last resort fallback
+    r = dict(RECIPES["DEFAULT"])
+    r['_note'] = f"Generic template — no specific recipe found for: {food_name}"
+    return r
