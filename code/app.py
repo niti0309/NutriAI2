@@ -434,12 +434,15 @@ def analyze_plan(plan, sex='M', age=30):
         summaries.append({'day': day, 'totals': dict(totals), 'rda_flags': flags})
     return summaries, diversity_score(all_names)
 
-def plan_to_csv(plan):
+def plan_to_csv(plan, person_name=''):
     rows = []
     for day in DAYS:
         for slot in SLOTS:
             m = plan[day][slot]
-            rows.append({
+            row = {}
+            if person_name:
+                row['Name'] = person_name
+            row.update({
                 'Day':day,'Meal':slot,'Food':m['name'],'Cuisine':m.get('cuisine',''),
                 'Calories':m.get('calories',0),'Protein_g':m.get('protein_g',0),
                 'Carbs_g':m.get('carbs_g',0),'Fat_g':m.get('fat_g',0),
@@ -450,6 +453,7 @@ def plan_to_csv(plan):
                 'Sodium_mg':m.get('sodium_mg',0),'GI_Score':get_gi_score(m['name']),
                 'FODMAP_Safe': 'No' if is_high_fodmap(m['name']) else 'Yes',
             })
+            rows.append(row)
     return pd.DataFrame(rows).to_csv(index=False)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -460,17 +464,65 @@ with st.sidebar:
     st.markdown('<div style="color:#7a6048;font-size:.85rem;margin-bottom:18px;">Personalized 7-Day Meal Planner</div>', unsafe_allow_html=True)
     st.divider()
 
+    # ── Quick-load Test Personas ──────────────────────────────────────────
+    st.markdown("**🧪 Quick Load Test Persona**")
+    PERSONAS = {
+        "👩 Priya": {
+            "name": "Priya", "age": 28, "sex": "F", "calories": 1800,
+            "diet": "Vegetarian", "conditions": ["IBS"],
+            "allergens": ["Dairy"], "custom": "",
+            "nutrients": ["Iron 🩸", "Calcium 🦴", "Vitamin D ☀️"],
+        },
+        "👨 Ravi": {
+            "name": "Ravi", "age": 35, "sex": "M", "calories": 2200,
+            "diet": "Non-Vegetarian", "conditions": ["GERD"],
+            "allergens": ["Gluten"], "custom": "",
+            "nutrients": ["Vitamin B12 ⚡", "Zinc 🛡️", "Magnesium 🌿"],
+        },
+        "👩 Mei": {
+            "name": "Mei", "age": 45, "sex": "F", "calories": 1600,
+            "diet": "Vegan", "conditions": ["T2 Diabetes"],
+            "allergens": ["Tree Nuts"], "custom": "",
+            "nutrients": ["Vitamin B12 ⚡", "Iron 🩸", "Zinc 🛡️"],
+        },
+        "👨 James": {
+            "name": "James", "age": 52, "sex": "M", "calories": 2000,
+            "diet": "Pescatarian", "conditions": ["Hypertension"],
+            "allergens": ["Soy"], "custom": "",
+            "nutrients": ["Potassium 🍌", "Magnesium 🌿"],
+        },
+    }
+
+    if 'loaded_persona' not in st.session_state:
+        st.session_state['loaded_persona'] = None
+
+    p_cols = st.columns(2)
+    for i, (pkey, pdata) in enumerate(PERSONAS.items()):
+        with p_cols[i % 2]:
+            if st.button(pkey, use_container_width=True, key=f"persona_{i}"):
+                st.session_state['loaded_persona'] = pdata
+
+    lp = st.session_state.get('loaded_persona') or {}
+    st.divider()
+
+    # ── Personal Info ─────────────────────────────────────────────────────
     st.markdown("**👤 Personal Info**")
+    user_name = st.text_input("Your Name", value=lp.get('name', ''), placeholder="e.g. Priya")
     col_a, col_b = st.columns(2)
     with col_a:
-        age = st.number_input("Age", 10, 100, 30)
+        age = st.number_input("Age", 10, 100, int(lp.get('age', 30)))
     with col_b:
-        sex_input = st.selectbox("Sex", ["M","F"])
-    calorie_target = st.slider("Daily Calories (kcal)", 1200, 4000, 2000, 50)
+        sex_opts = ["M","F"]
+        sex_default_idx = sex_opts.index(lp['sex']) if lp.get('sex') in sex_opts else 0
+        sex_input = st.selectbox("Sex", sex_opts, index=sex_default_idx)
+    calorie_target = st.slider("Daily Calories (kcal)", 1200, 4000, int(lp.get('calories', 2000)), 50)
 
     st.divider()
     st.markdown("**🥦 Dietary Preference**")
-    diet = st.selectbox("Diet Type", ["Non-Vegetarian","Vegetarian","Vegan","Pescatarian","Halal","Kosher"])
+    diet_opts = ["Non-Vegetarian","Vegetarian","Vegan","Pescatarian","Halal","Kosher"]
+    diet_default = lp.get('diet', 'Non-Vegetarian')
+    diet_idx = diet_opts.index(diet_default) if diet_default in diet_opts else 0
+    diet = st.selectbox("Diet Type", diet_opts, index=diet_idx)
 
     st.markdown("**🌍 Cuisine Preferences**")
     all_cuisines = ['Indian','Chinese','Korean','American','Mexican','Mediterranean',
@@ -480,12 +532,12 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**🏥 Clinical Conditions**")
-    conditions = st.multiselect("Conditions", ["IBS","GERD","T2 Diabetes","Hypertension"], default=[])
+    conditions = st.multiselect("Conditions", ["IBS","GERD","T2 Diabetes","Hypertension"], default=lp.get('conditions', []))
 
     st.divider()
     st.markdown("**⚠️ Allergies**")
-    selected_allergens = st.multiselect("Common allergens", list(ALLERGEN_MAP.keys()), default=[])
-    custom_raw = st.text_input("Custom allergens (comma-separated)", placeholder="mustard, celery...")
+    selected_allergens = st.multiselect("Common allergens", list(ALLERGEN_MAP.keys()), default=lp.get('allergens', []))
+    custom_raw = st.text_input("Custom allergens (comma-separated)", value=lp.get('custom',''), placeholder="mustard, celery...")
     custom_allergens = [a.strip() for a in custom_raw.split(',') if a.strip()]
 
     st.divider()
@@ -505,7 +557,7 @@ with st.sidebar:
     focused_labels = st.multiselect(
         "Prioritise nutrients (optional)",
         options=list(NUTRIENT_FOCUS_OPTIONS.keys()),
-        default=[],
+        default=lp.get('nutrients', []),
         placeholder="e.g. Protein, Iron, Calcium..."
     )
     focused_nutrients = [NUTRIENT_FOCUS_OPTIONS[l] for l in focused_labels]
@@ -566,6 +618,7 @@ if generate_btn:
         'daily_summaries': daily_summaries, 'div_score': div_sc,
         'calorie_target': calorie_target, 'sex_val': sex_input, 'age_val': age,
         'focused_nutrients': focused_nutrients, 'focused_labels': focused_labels,
+        'user_name': user_name.strip(),
     })
 
 # ── Display ───────────────────────────────────────────────────────────────────────
@@ -576,9 +629,11 @@ if 'plan' in st.session_state:
     daily_summaries = st.session_state['daily_summaries']
     div_sc         = st.session_state['div_score']
     cal_target     = st.session_state['calorie_target']
+    saved_name     = st.session_state.get('user_name', '')
 
     # Summary strip
-    st.markdown('<div class="section-title">📈 Plan Summary</div>', unsafe_allow_html=True)
+    greeting = f"📈 {saved_name}'s Plan Summary" if saved_name else "📈 Plan Summary"
+    st.markdown(f'<div class="section-title">{greeting}</div>', unsafe_allow_html=True)
     mc1,mc2,mc3,mc4 = st.columns(4)
     t_color = "#4ade80" if elapsed < 60 else "#f87171"
     d_color = "#4ade80" if div_sc >= 0.7 else "#fbbf24"
@@ -802,12 +857,19 @@ if 'plan' in st.session_state:
     # ── TAB 5: Export ─────────────────────────────────────────────────────
     with tab5:
         st.markdown('<div class="section-title">📥 Download Your Plan</div>', unsafe_allow_html=True)
-        csv_data = plan_to_csv(plan)
+
+        # Build safe filename slug from name
+        name_slug = saved_name.replace(' ','_') if saved_name else 'NutriAI'
+        date_str  = datetime.now().strftime('%Y%m%d')
+        if saved_name:
+            st.markdown(f'<div class="metric-card">👤 Plan prepared for: <b>{saved_name}</b></div>', unsafe_allow_html=True)
+
+        csv_data = plan_to_csv(plan, person_name=saved_name)
         st.download_button("⬇️ Download Plan as CSV", csv_data,
-                           f"NutriAI_Plan_{datetime.now().strftime('%Y%m%d')}.csv",
+                           f"{name_slug}_NutriAI_{date_str}.csv",
                            'text/csv', use_container_width=True)
 
-        plan_json = {}
+        plan_json = {'generated_for': saved_name or 'User', 'generated_on': date_str}
         for day in DAYS:
             plan_json[day] = {}
             for slot in SLOTS:
@@ -817,7 +879,7 @@ if 'plan' in st.session_state:
                 }
         st.download_button("⬇️ Download Plan as JSON",
                            json.dumps(plan_json, indent=2),
-                           f"NutriAI_Plan_{datetime.now().strftime('%Y%m%d')}.json",
+                           f"{name_slug}_NutriAI_{date_str}.json",
                            'application/json', use_container_width=True)
 
 # ── Landing state ──────────────────────────────────────────────────────────────────
@@ -829,12 +891,16 @@ else:
   <div style="color:#64748b;max-width:500px;margin:0 auto">Set your dietary preferences, allergies, clinical conditions, and cuisine — then hit <b style="color:#4ade80">Generate My 7-Day Plan</b></div>
 </div>""", unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">🧪 Test Personas (BAX-423)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🧪 Test Personas (BAX-423) — Click in sidebar to load</div>', unsafe_allow_html=True)
     personas = [
-        ("👩 Priya", "IBS + Vegetarian + Lactose Intolerant", "Conditions: IBS · Diet: Vegetarian · Allergen: Dairy · 1800 kcal · Priority: Iron, Calcium, VitD"),
-        ("👨 Ravi",  "GERD + Non-Veg + Gluten-Free",         "Conditions: GERD · Diet: Non-Veg · Allergen: Gluten · 2200 kcal · Priority: B12, Zinc, Mg"),
-        ("👩 Mei",   "T2 Diabetes + Vegan + Tree Nuts",       "Conditions: T2 Diabetes · Diet: Vegan · Allergen: Tree Nuts · 1600 kcal · Priority: B12, Iron, Zinc"),
-        ("👨 James", "Hypertension + Pescatarian + Soy",      "Conditions: Hypertension · Diet: Pescatarian · Allergen: Soy · 2000 kcal · Priority: Na, K, Mg"),
+        ("👩 Priya", "IBS + Vegetarian + Lactose Intolerant",
+         "IBS-D · Vegetarian (eggs ok) · Allergen: Dairy · No high-FODMAP · 1,800 kcal · Priority: Iron, Calcium, Vit D"),
+        ("👨 Ravi",  "GERD + Non-Veg (no pork) + Gluten-Free",
+         "GERD · Non-veg · Celiac (gluten) · No citrus/tomato/spicy/fried · 2,200 kcal · Priority: B12, Zinc, Mg"),
+        ("👩 Mei",   "T2 Diabetes + Vegan + Tree Nut Allergy",
+         "T2D · Vegan · No tree nuts · All meals GI ≤ 55 · Fibre ≥ 25g/day · 1,600 kcal · Priority: B12, Iron, Zinc"),
+        ("👨 James", "Hypertension + Pescatarian + Soy Allergy",
+         "Hypertension (DASH) · Pescatarian · No soy · Sodium ≤ 1,500 mg/day · 2,000 kcal · Priority: Na, K, Mg"),
     ]
     pc1,pc2,pc3,pc4 = st.columns(4)
     for col,(pname,ptitle,pdesc) in zip([pc1,pc2,pc3,pc4], personas):
