@@ -563,13 +563,10 @@ with st.sidebar:
     focused_nutrients = [NUTRIENT_FOCUS_OPTIONS[l] for l in focused_labels]
 
     st.divider()
-    st.markdown("**🔬 USDA API**")
-    usda_key = st.text_input("USDA API key (optional)", value="", type="password",
-                              placeholder="Get free key at fdc.nal.usda.gov")
-    usda_enrich = st.checkbox("Enrich top foods with live USDA data", value=False)
-
-    st.divider()
     generate_btn = st.button("🚀 Generate My 7-Day Plan", use_container_width=True)
+
+usda_key = USDA_API_KEY
+usda_enrich = False
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -619,6 +616,17 @@ if generate_btn:
         'calorie_target': calorie_target, 'sex_val': sex_input, 'age_val': age,
         'focused_nutrients': focused_nutrients, 'focused_labels': focused_labels,
         'user_name': user_name.strip(),
+        'profile': {
+            'name': user_name.strip(),
+            'age': age,
+            'sex': sex_input,
+            'calories': calorie_target,
+            'diet': diet,
+            'conditions': conditions,
+            'allergens': selected_allergens + custom_allergens,
+            'nutrients': focused_labels,
+            'cuisines': cuisines_sel if cuisines_sel else [],
+        }
     })
 
 # ── Display ───────────────────────────────────────────────────────────────────────
@@ -630,6 +638,41 @@ if 'plan' in st.session_state:
     div_sc         = st.session_state['div_score']
     cal_target     = st.session_state['calorie_target']
     saved_name     = st.session_state.get('user_name', '')
+    profile        = st.session_state.get('profile', {})
+
+    # ── Profile card ──────────────────────────────────────────────────────
+    p_name       = profile.get('name') or 'User'
+    p_age        = profile.get('age', '—')
+    p_sex        = 'Male' if profile.get('sex') == 'M' else 'Female'
+    p_cal        = profile.get('calories', '—')
+    p_diet       = profile.get('diet', '—')
+    p_conds      = profile.get('conditions', [])
+    p_allergens  = profile.get('allergens', [])
+    p_nutrients  = profile.get('nutrients', [])
+    p_cuisines   = profile.get('cuisines', [])
+
+    cond_html    = ''.join(f'<span class="warn-tag">🏥 {c}</span>' for c in p_conds) or '<span style="color:#7a6048;font-size:.82rem">None</span>'
+    allergy_html = ''.join(f'<span class="excluded-tag">⚠️ {a}</span>' for a in p_allergens) or '<span style="color:#7a6048;font-size:.82rem">None</span>'
+    nutrient_html= ''.join(f'<span class="included-tag">🎯 {n}</span>' for n in p_nutrients) or '<span style="color:#7a6048;font-size:.82rem">Not specified</span>'
+    cuisine_html = ''.join(f'<span class="included-tag">🌍 {c}</span>' for c in p_cuisines) or '<span style="color:#7a6048;font-size:.82rem">All cuisines</span>'
+
+    st.markdown(f"""
+<div class="meal-card" style="margin-bottom:20px;border-left:4px solid #6b8f47;">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+    <div style="font-size:2.4rem;line-height:1">{'👩' if profile.get('sex')=='F' else '👨'}</div>
+    <div>
+      <div style="font-family:Syne,sans-serif;font-size:1.3rem;font-weight:800;color:#3a5c1e">{p_name}</div>
+      <div style="color:#7a6048;font-size:.88rem">{p_age} yrs · {p_sex} · {p_diet} · {p_cal} kcal/day</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div><div style="font-size:.75rem;color:#7a6048;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Clinical Conditions</div>{cond_html}</div>
+    <div><div style="font-size:.75rem;color:#7a6048;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Allergens</div>{allergy_html}</div>
+    <div><div style="font-size:.75rem;color:#7a6048;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Nutrient Focus</div>{nutrient_html}</div>
+    <div><div style="font-size:.75rem;color:#7a6048;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">Cuisine Preferences</div>{cuisine_html}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     # Summary strip
     greeting = f"📈 {saved_name}'s Plan Summary" if saved_name else "📈 Plan Summary"
