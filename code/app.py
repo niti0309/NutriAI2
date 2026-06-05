@@ -518,7 +518,7 @@ with st.sidebar:
     with col_a:
         age = st.number_input("Age", 10, 100, 30, key='age')
     with col_b:
-        sex = st.selectbox("Sex", ["M", "F"], key='sex')
+        sex = st.selectbox("Sex", ["M", "F"], key="sex_input")
 
     calorie_target = st.slider("Daily Calorie Target (kcal)", 1200, 4000, 2000, 50)
 
