@@ -850,18 +850,34 @@ def bulk_fetch_usda(records, seen_fdc, seen_names, fid):
                     break
                 time.sleep(REQUEST_GAP)
 
-    if pending_detail:
-        print(f"\n── Back-filling nutrients for {len(pending_detail):,} items via batch /foods ──")
-        unique_pending = list(dict.fromkeys(pending_detail))
-        for i in range(0, len(unique_pending), BATCH_SIZE):
-            batch = unique_pending[i:i + BATCH_SIZE]
-            detail_map = fetch_foods_batch_details(batch)
-            apply_batch_details(records, detail_map)
-            if (i // BATCH_SIZE) % 10 == 0:
-                print(f"    batch {i // BATCH_SIZE + 1}/{(len(unique_pending) - 1) // BATCH_SIZE + 1}", flush=True)
-            time.sleep(REQUEST_GAP)
+    return fid, pending_detail
 
-    return fid
+
+def save_csv(records, label=""):
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "food_database.csv")
+    df = pd.DataFrame(records)
+    df.to_csv(out, index=False)
+    tag = f" ({label})" if label else ""
+    print(f"\n💾  Saved {len(df):,} foods to {out}{tag}", flush=True)
+    return out, df
+
+
+def backfill_nutrients(records, pending_detail):
+    """Optional Phase 4 — enrich sparse nutrient rows (slow; safe to skip)."""
+    if not pending_detail:
+        return
+    unique_pending = list(dict.fromkeys(pending_detail))
+    total_batches = (len(unique_pending) - 1) // BATCH_SIZE + 1
+    print(f"\n── Phase 4: Back-filling nutrients for {len(unique_pending):,} items ──", flush=True)
+    print(f"    ({total_batches} API batches — ~{total_batches * 2}s, please wait)\n", flush=True)
+    for i in range(0, len(unique_pending), BATCH_SIZE):
+        batch_num = i // BATCH_SIZE + 1
+        batch = unique_pending[i:i + BATCH_SIZE]
+        print(f"    batch {batch_num}/{total_batches} ...", end="", flush=True)
+        detail_map = fetch_foods_batch_details(batch)
+        apply_batch_details(records, detail_map)
+        print(f" done ({len(detail_map)} enriched)", flush=True)
+        time.sleep(REQUEST_GAP)
 
 
 def main():
@@ -899,14 +915,20 @@ def main():
         time.sleep(REQUEST_GAP)
 
     # ── Phase 2+3: Bulk USDA until ≥ 5,000 ───────────────────────────────────
-    fid = bulk_fetch_usda(records, seen_fdc, seen_names, fid)
+    fid, pending_detail = bulk_fetch_usda(records, seen_fdc, seen_names, fid)
 
-    df = pd.DataFrame(records)
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "food_database.csv")
-    df.to_csv(out, index=False)
+    # Save immediately so 5,000+ rows are on disk even if Phase 4 is slow/interrupted
+    out, df = save_csv(records, label="before nutrient back-fill")
+
+    # Phase 4 is optional — set SKIP_BACKFILL=1 to finish faster
+    if os.environ.get("SKIP_BACKFILL", "").strip() not in ("1", "true", "yes"):
+        backfill_nutrients(records, pending_detail)
+        out, df = save_csv(records, label="final")
+    else:
+        print("\n⏭️  Skipped Phase 4 back-fill (SKIP_BACKFILL=1)", flush=True)
 
     real_usda = (df["usda_fdcId"].astype(str).str.strip() != "").sum()
-    print(f"\n✅  Saved {len(df):,} foods to {out}")
+    print(f"\n✅  Done — {len(df):,} foods in {out}")
     print(f"    Curated dishes: {n_curated:,}")
     print(f"    Bulk USDA catalog: {len(df) - n_curated:,}")
     print(f"    Real USDA fdcIds: {real_usda:,}  |  Defaults-filled: {len(df) - real_usda:,}")
