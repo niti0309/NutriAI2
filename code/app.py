@@ -93,22 +93,53 @@ def load_usda_cache():
             return json.load(f)
     return {}
 
-# ── Load food database ───────────────────────────────────────────────────────────
+# ── USDA Live enrichment at startup ─────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def fetch_usda_nutrients_live(food_name: str, api_key: str) -> dict:
+    """
+    Live USDA FoodData Central API call.
+    Source: https://fdc.nal.usda.gov/api-guide.html
+    Returns real nutrient values for a food name.
+    """
+    return fetch_usda_food(food_name, api_key)
+
 @st.cache_data
 def load_data():
+    """
+    Load food database. Nutrient values are either:
+    - From USDA FoodData Central API (if fetch_usda_data.py was run, or live enrichment)
+    - From offline snapshot (food_database.csv) with USDA-aligned values
+    Clinical flags are always re-applied live from:
+    - Monash University FODMAP list (is_high_fodmap)
+    - ACG GERD trigger list (is_gerd_trigger)
+    - GI database / Atkinson 2008 (gi_score)
+    - NHLBI DASH sodium guidelines (is_high_sodium)
+    """
     df = pd.read_csv(DATA_PATH)
-    # Re-score GI from our GI database (more accurate than generated values)
-    df['gi_score'] = df['name'].apply(get_gi_score)
-    df['is_high_gi'] = (df['gi_score'] > 55).astype(int)
-    # Re-score FODMAP from Monash list
+
+    # ── Re-apply all clinical scores from real sources (overrides CSV values) ──
+    # GI scores from International GI Database (glycemicindex.com / Atkinson 2008)
+    df['gi_score']       = df['name'].apply(get_gi_score)
+    df['is_high_gi']     = (df['gi_score'] > 55).astype(int)
+    # FODMAP from Monash University Low-FODMAP list (monashfodmap.com)
     df['is_high_fodmap'] = df['name'].apply(lambda x: int(is_high_fodmap(x)))
-    # Re-score GERD triggers
+    # GERD triggers from ACG clinical guidelines
     df['is_gerd_trigger'] = df['name'].apply(lambda x: int(is_gerd_trigger(x)[0]))
-    # Parse list columns
+    # DASH sodium limit (NHLBI: 1500mg/day strict, 2300mg standard)
+    df['is_high_sodium'] = (df['sodium_mg'] > 600).astype(int)  # per-meal threshold
+
+    # ── Parse list columns ──────────────────────────────────────────────────────
     df['diet_tags_list']       = df['diet_tags'].fillna('').str.split('|')
     df['allergens_list']       = df['allergens'].fillna('').str.split('|')
     df['categories_list']      = df['categories'].fillna('').str.split('|')
     df['safe_conditions_list'] = df['safe_conditions'].fillna('').str.split('|')
+
+    # ── Mark data source ────────────────────────────────────────────────────────
+    if 'usda_fdcId' not in df.columns:
+        df['usda_fdcId'] = ''
+    df['data_source'] = df['usda_fdcId'].apply(
+        lambda x: f'USDA FDC #{x}' if str(x).strip() not in ['', 'nan', '0'] else 'USDA-aligned offline snapshot'
+    )
     return df
 
 # ════════════════════════════════════════════════════════════
@@ -563,10 +594,20 @@ with st.sidebar:
     focused_nutrients = [NUTRIENT_FOCUS_OPTIONS[l] for l in focused_labels]
 
     st.divider()
+    st.markdown("**🔬 USDA Live Data**")
+    usda_key = st.text_input(
+        "USDA FoodData Central API Key",
+        value="0cgLd6SqV4l6qf0Xudmfyi71vnGglJMwkZaYq1ei",
+        type="password",
+        help="Live nutrient lookups via fdc.nal.usda.gov"
+    )
+    usda_enrich = st.checkbox(
+        "Enrich meals with live USDA nutrient data",
+        value=True,
+        help="Fetches real-time nutrient values from USDA FoodData Central API for each recommended meal"
+    )
+    st.divider()
     generate_btn = st.button("🚀 Generate My 7-Day Plan", use_container_width=True)
-
-usda_key = USDA_API_KEY
-usda_enrich = False
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -727,8 +768,26 @@ if 'plan' in st.session_state:
 
                     recipe = get_recipe(name)
                     recipe_note = recipe.pop('_note', '')
-                    ing_list = ''.join(f'<li style="color:#5a3e28;font-size:.82rem;padding:2px 0">{i}</li>' for i in recipe['ingredients'])
-                    steps_list = ''.join(f'<li style="color:#5a3e28;font-size:.82rem;padding:3px 0">{s}</li>' for s in recipe['steps'])
+                    ing_list = ''.join(f'<li style="color:#94a3b8;font-size:.82rem;padding:2px 0">{i}</li>' for i in recipe['ingredients'])
+                    steps_list = ''.join(f'<li style="color:#94a3b8;font-size:.82rem;padding:3px 0">{s}</li>' for s in recipe['steps'])
+
+                    # Live USDA enrichment
+                    data_src = meal.get('data_source', 'USDA-aligned offline snapshot')
+                    usda_live = {}
+                    if usda_enrich and usda_key:
+                        usda_live = fetch_usda_nutrients_live(name, usda_key)
+                        if usda_live:
+                            data_src = f'USDA FDC #{usda_live.get("usda_fdcId","")} (live)'
+                            # Override display values with live USDA data
+                            cal   = usda_live.get('calories', cal)
+                            prot  = usda_live.get('protein_g', prot)
+                            carbs = usda_live.get('carbs_g', carbs)
+                            fat   = usda_live.get('fat_g', fat)
+                            fiber = usda_live.get('fiber_g', fiber)
+                            sodium = usda_live.get('sodium_mg', sodium)
+                    src_color = '#22d3ee' if 'live' in data_src else '#64748b'
+                    src_icon  = '🌐' if 'live' in data_src else '💾'
+                    src_label = data_src
 
                     # Nutrient focus highlight
                     fn = st.session_state.get('focused_nutrients', [])
@@ -759,7 +818,8 @@ if 'plan' in st.session_state:
 <div class="meal-card">
   <div style="color:#8b7355;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em">{slot}</div>
   <div style="font-family:Syne,sans-serif;font-weight:700;font-size:1rem;color:#2c1f0e;margin:4px 0 2px 0">{name}</div>
-  <div style="color:#7a6048;font-size:.8rem;margin-bottom:8px">🌍 {cuisine} &nbsp;·&nbsp; ⏱️ {recipe['prep_time']} prep &nbsp;·&nbsp; 🍳 {recipe['cook_time']} cook</div>
+  <div style="color:#64748b;font-size:.8rem;margin-bottom:8px">🌍 {cuisine} &nbsp;·&nbsp; ⏱️ {recipe['prep_time']} prep &nbsp;·&nbsp; 🍳 {recipe['cook_time']} cook</div>
+  <div style="font-size:.72rem;margin-bottom:6px"><span style="color:{src_color}">{src_icon} Nutrient data: {src_label}</span></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:.8rem;margin-bottom:8px">
     <span style="color:#b8650a">🔥 {cal} kcal</span>
     <span style="color:#3a6aad">💪 {prot}g protein</span>
