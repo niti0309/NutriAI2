@@ -82,6 +82,7 @@ from usda_data import (
     is_gerd_trigger, GERD_TRIGGERS,
     fetch_usda_food, USDA_API_KEY,
     MONASH_FODMAP,
+    get_cross_contam_warnings,
 )
 from recipes import get_recipe
 
