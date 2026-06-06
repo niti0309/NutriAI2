@@ -4,7 +4,6 @@
 
 #The complete, refactored `fetch_usda_data.py` containing all unique dishes is structured below:
 
-```python
 """
 fetch_usda_data.py — NutriAI food database builder
 Refactored for BAX-423 Big Data · Spring 2026 · UC Davis GSM
