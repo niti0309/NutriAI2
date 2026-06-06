@@ -223,6 +223,60 @@ NUTRIENT_MAP = {
     "Sodium, Na": "sodium_mg",
 }
 
+# ─────────────────────────────────────────────────────────
+# CROSS-CONTAMINATION RULES
+# Source: FDA Food Allergen Labeling and Consumer Protection Act (FALCPA 2004)
+# Foods that carry cross-contamination risk for an allergen even when
+# that allergen is not a primary listed ingredient.
+# ─────────────────────────────────────────────────────────
+CROSS_CONTAM_RULES = {
+    "Gluten": {
+        "risk_foods": ["oats", "oatmeal", "overnight oats", "granola", "muesli",
+                       "rolled oats", "oat milk", "bran", "cornflakes", "cereal",
+                       "rice cakes", "pretzels", "popcorn"],
+        "reason": "Oats and cereals frequently processed on shared wheat equipment (FDA FALCPA)"
+    },
+    "Tree Nuts": {
+        "risk_foods": ["chocolate", "energy bar", "trail mix", "granola", "muesli",
+                       "cookie", "brownie", "cake", "muffin", "ice cream"],
+        "reason": "Shared processing facilities common in confectionery/snack categories (FDA FALCPA)"
+    },
+    "Peanuts": {
+        "risk_foods": ["chocolate", "energy bar", "trail mix", "granola", "cookie",
+                       "brownie", "cake", "satay", "asian sauce"],
+        "reason": "Shared processing with peanuts common in confectionery and Asian condiments (FDA FALCPA)"
+    },
+    "Dairy": {
+        "risk_foods": ["dark chocolate", "margarine", "non-dairy creamer",
+                       "tuna canned", "bread", "crackers"],
+        "reason": "Dairy traces common in processed foods due to shared lines (FDA FALCPA)"
+    },
+    "Eggs": {
+        "risk_foods": ["pasta", "bread", "noodle", "ramen", "udon", "cake", "muffin"],
+        "reason": "Egg cross-contamination common in pasta and bakery products (FDA FALCPA)"
+    },
+}
+
+def get_cross_contam_warnings(food_name: str, allergens_set: set) -> list:
+    """
+    Return cross-contamination warning strings for a food given the
+    user's declared allergen set. Uses FDA FALCPA-based rules.
+    """
+    warnings = []
+    name_lower = food_name.lower()
+    for allergen in allergens_set:
+        rule = CROSS_CONTAM_RULES.get(allergen)
+        if not rule:
+            continue
+        for risk_word in rule["risk_foods"]:
+            if risk_word in name_lower:
+                warnings.append(
+                    f"⚠️ Cross-contamination risk ({allergen}): "
+                    f"'{risk_word}' — {rule['reason']}"
+                )
+                break  # one warning per allergen per food
+    return warnings
+    
 def fetch_usda_food(food_name: str, api_key: str = USDA_API_KEY) -> dict:
     """Fetch nutrient data from USDA FoodData Central API."""
     try:
