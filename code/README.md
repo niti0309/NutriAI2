@@ -106,4 +106,11 @@ services:
 - **Monash University Low-FODMAP list** — IBS-safe food rules
 - **DASH diet guidelines (NHLBI)** — Hypertension sodium limits
 
-*Offline snapshot included in `data/food_database.csv` (5,056 items) for grader use without API access.*
+*Offline snapshot included in `data/food_database.csv` (**≥10,000** deduplicated items) for grader use without API access.*
+
+Verify ingestion (rubric §1):
+
+```bash
+cd data
+python verify_ingestion.py   # prints PASS when ≥10,000 records
+```

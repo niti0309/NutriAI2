@@ -7,11 +7,22 @@ Usage:
     python fetch_usda_data.py
 
 Requires: pip install requests pandas
-Produces: food_database.csv  (5,000+ USDA foods — curated dishes + bulk catalog)
-Takes:    ~5-15 minutes (rate-limited to respect USDA 1,000 req/hour cap)
+Produces: food_database.csv  (10,000+ USDA foods — curated dishes + bulk catalog)
+Takes:    ~10-25 minutes (rate-limited to respect USDA 1,000 req/hour cap)
+
+Extend existing snapshot without re-fetching Phase 1:
+    EXTEND_ONLY=1 SKIP_BACKFILL=1 python fetch_usda_data.py
 """
 
 import requests, pandas as pd, time, os, copy, random
+from dataclasses import replace
+
+from ingest_pipeline import (
+    MIN_INGESTED_RECORDS,
+    deduplicate_food_dataframe,
+    print_ingestion_summary,
+    save_ingestion_artifacts,
+)
 
 API_KEY  = "0cgLd6SqV4l6qf0Xudmfyi71vnGglJMwkZaYq1ei"
 BASE_URL = "https://api.nal.usda.gov/fdc/v1"
@@ -391,7 +402,7 @@ GERD_LIST   = ["tomato","citrus","coffee","chocolate","spicy","fried",
                "peppermint","alcohol","vinegar","garlic","onion"]
 
 # ── Bulk USDA catalog settings ───────────────────────────────────────────────
-TARGET_MIN   = 5000          # BAX-423 requirement: ≥5,000-item offline snapshot
+TARGET_MIN   = MIN_INGESTED_RECORDS  # BAX-423 rubric: ≥10,000 structured records
 PAGE_SIZE    = 200           # USDA max page size for list/search
 REQUEST_GAP  = 0.15          # seconds between API calls (1,000 req/hour limit)
 BATCH_SIZE   = 20            # fdcIds per /foods batch detail request
@@ -880,64 +891,107 @@ def backfill_nutrients(records, pending_detail):
         time.sleep(REQUEST_GAP)
 
 
+def load_existing_snapshot(records, seen_fdc, seen_names):
+    """Resume from food_database.csv (EXTEND_ONLY=1) to reach TARGET_MIN faster."""
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "food_database.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"No existing snapshot at {csv_path}")
+    df = pd.read_csv(csv_path)
+    records.extend(df.to_dict("records"))
+    for row in records:
+        fdc = str(row.get("usda_fdcId", "")).strip()
+        if fdc:
+            seen_fdc.add(fdc)
+        seen_names.add(str(row.get("name", "")).strip().lower())
+    print(f"  Loaded {len(records):,} existing rows from {csv_path}")
+    return len(records) + 1
+
+
 def main():
     n_curated = len(FOOD_QUERIES)
+    extend_only = os.environ.get("EXTEND_ONLY", "").strip().lower() in ("1", "true", "yes")
     print(f"NutriAI — building ≥{TARGET_MIN:,}-item USDA food database")
     print(f"  Phase 1: {n_curated} curated dishes")
-    print(f"  Phase 2: bulk Foundation + SR Legacy + Branded catalog\n")
+    print(f"  Phase 2: bulk Foundation + SR Legacy + Branded catalog")
+    print(f"  Phase 5: deduplication + ingestion validation\n")
 
     records    = []
     seen_fdc   = set()
     seen_names = set()
     fid        = 1
 
-    # ── Phase 1: Curated dishes (original FOOD_QUERIES) ──────────────────────
-    for i, (query, display_name, cuisine, diet_tags, allergens, categories) in enumerate(FOOD_QUERIES):
-        print(f"  [{i+1:>3}/{n_curated}] {display_name:<35} ", end="", flush=True)
-        usda = fetch_food(query)
-        defaults = get_defaults(categories)
+    if extend_only:
+        print("── EXTEND_ONLY: skipping Phase 1, continuing bulk fetch ──\n")
+        fid = load_existing_snapshot(records, seen_fdc, seen_names)
+    else:
+        # ── Phase 1: Curated dishes (original FOOD_QUERIES) ──────────────────
+        for i, (query, display_name, cuisine, diet_tags, allergens, categories) in enumerate(FOOD_QUERIES):
+            print(f"  [{i+1:>3}/{n_curated}] {display_name:<35} ", end="", flush=True)
+            usda = fetch_food(query)
+            defaults = get_defaults(categories)
 
-        if usda and usda.get("usda_fdcId"):
-            usda, _ = fill_nutrients(usda, categories)
-            seen_fdc.add(str(usda["usda_fdcId"]))
-            print(f"✅  {usda['calories']:.0f} kcal  [fdcId={usda['usda_fdcId']}]")
-        else:
-            usda = dict(defaults)
-            usda["usda_fdcId"] = ""
-            usda["usda_description"] = query
-            print(f"⚠️  defaults used ({defaults['calories']} kcal)")
+            if usda and usda.get("usda_fdcId"):
+                usda, _ = fill_nutrients(usda, categories)
+                seen_fdc.add(str(usda["usda_fdcId"]))
+                print(f"✅  {usda['calories']:.0f} kcal  [fdcId={usda['usda_fdcId']}]")
+            else:
+                usda = dict(defaults)
+                usda["usda_fdcId"] = ""
+                usda["usda_description"] = query
+                print(f"⚠️  defaults used ({defaults['calories']} kcal)")
 
-        seen_names.add(display_name.lower())
-        records.append(build_record(
-            fid, display_name, cuisine, categories, diet_tags, allergens, usda, query
-        ))
-        fid += 1
-        time.sleep(REQUEST_GAP)
+            seen_names.add(display_name.lower())
+            records.append(build_record(
+                fid, display_name, cuisine, categories, diet_tags, allergens, usda, query
+            ))
+            fid += 1
+            time.sleep(REQUEST_GAP)
 
-    # ── Phase 2+3: Bulk USDA until ≥ 5,000 ───────────────────────────────────
+    # ── Phase 2+3: Bulk USDA until ≥ TARGET_MIN ──────────────────────────────
     fid, pending_detail = bulk_fetch_usda(records, seen_fdc, seen_names, fid)
 
-    # Save immediately so 5,000+ rows are on disk even if Phase 4 is slow/interrupted
-    out, df = save_csv(records, label="before nutrient back-fill")
+    # Save raw concat before final dedup pass (checkpoint)
+    save_csv(records, label="pre-dedup checkpoint")
 
     # Phase 4 is optional — set SKIP_BACKFILL=1 to finish faster
     if os.environ.get("SKIP_BACKFILL", "").strip() not in ("1", "true", "yes"):
         backfill_nutrients(records, pending_detail)
-        out, df = save_csv(records, label="final")
     else:
         print("\n⏭️  Skipped Phase 4 back-fill (SKIP_BACKFILL=1)", flush=True)
 
+    # ── Phase 5: Formal deduplication pipeline (rubric) ──────────────────────
+    print(f"\n── Phase 5: Deduplication & ingestion validation ──\n")
+    raw_df = pd.DataFrame(records)
+    df, stats = deduplicate_food_dataframe(raw_df)
+    curated_count = min(n_curated, len(df))
+    stats = replace(
+        stats,
+        curated_count=curated_count,
+        bulk_count=len(df) - curated_count,
+    )
+    print_ingestion_summary(stats)
+    artifacts = save_ingestion_artifacts(df, stats)
+
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "food_database.csv")
+    df.to_csv(out, index=False)
+    print(f"\n💾  Saved {len(df):,} deduplicated foods to {out}")
+    print(f"    Parquet: {artifacts['parquet']}")
+    print(f"    Report:  {artifacts['report']}")
+
     real_usda = (df["usda_fdcId"].astype(str).str.strip() != "").sum()
     print(f"\n✅  Done — {len(df):,} foods in {out}")
-    print(f"    Curated dishes: {n_curated:,}")
-    print(f"    Bulk USDA catalog: {len(df) - n_curated:,}")
+    print(f"    Curated dishes: {stats.curated_count:,}")
+    print(f"    Bulk USDA catalog: {stats.bulk_count:,}")
     print(f"    Real USDA fdcIds: {real_usda:,}  |  Defaults-filled: {len(df) - real_usda:,}")
     print(f"    Cuisines: {df['cuisine'].nunique()}  |  Data types: Foundation, SR Legacy, Branded")
 
-    if len(df) < TARGET_MIN:
-        print(f"\n⚠️  WARNING: Only {len(df):,} items — re-run script (API may have rate-limited).")
+    if not stats.meets_rubric:
+        print(
+            f"\n⚠️  WARNING: Only {len(df):,} items after dedup — "
+            f"re-run with EXTEND_ONLY=1 (API may have rate-limited)."
+        )
     else:
-        print(f"\n🎉  Requirement met: {len(df):,} ≥ {TARGET_MIN:,} offline snapshot items.")
+        print(f"\n🎉  Rubric met: {len(df):,} ≥ {TARGET_MIN:,} structured records ingested.")
 
 
 if __name__ == "__main__":

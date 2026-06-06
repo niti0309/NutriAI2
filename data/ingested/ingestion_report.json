@@ -1,0 +1,13 @@
+{
+  "raw_row_count": 10083,
+  "deduplicated_row_count": 10054,
+  "duplicates_removed": 29,
+  "dedup_keys": "usda_fdcId (primary), name (secondary)",
+  "curated_count": 249,
+  "bulk_count": 9805,
+  "unique_fdc_ids": 10054,
+  "unique_names": 10054,
+  "meets_rubric": true,
+  "min_required": 10000,
+  "parquet_path": "/Users/nitipatel/Downloads/nutriai/data/ingested/food_database_deduped.csv"
+}

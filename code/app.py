@@ -18,9 +18,14 @@ BAX-423 Techniques:
 import streamlit as st
 import pandas as pd
 import numpy as np
-import time, random, hashlib, json, os, io
+import time, random, hashlib, json, os, io, sys
 from datetime import datetime
 from collections import defaultdict
+
+DATA_MODULE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+if DATA_MODULE_DIR not in sys.path:
+    sys.path.insert(0, DATA_MODULE_DIR)
+from ingest_pipeline import deduplicate_food_dataframe, MIN_INGESTED_RECORDS
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -96,7 +101,8 @@ def load_usda_cache():
 # ── Load food database ───────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    df = pd.read_csv(DATA_PATH)
+    raw_df = pd.read_csv(DATA_PATH)
+    df, stats = deduplicate_food_dataframe(raw_df)
     # Re-score GI from our GI database (more accurate than generated values)
     df['gi_score'] = df['name'].apply(get_gi_score)
     df['is_high_gi'] = (df['gi_score'] > 55).astype(int)
@@ -109,7 +115,7 @@ def load_data():
     df['allergens_list']       = df['allergens'].fillna('').str.split('|')
     df['categories_list']      = df['categories'].fillna('').str.split('|')
     df['safe_conditions_list'] = df['safe_conditions'].fillna('').str.split('|')
-    return df
+    return df, stats
 
 # ════════════════════════════════════════════════════════════
 # BAX-423 TECHNIQUE 1 — BLOOM FILTER (Sketching lecture)
@@ -571,8 +577,22 @@ usda_enrich = False  # uses offline food_database.csv with USDA-aligned data
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
-df = load_data()
+df, ingestion_stats = load_data()
 vectorizer, faiss_index = build_faiss_index(df)
+
+with st.sidebar:
+    st.divider()
+    st.markdown("**📊 Data pipeline (Rubric §1)**")
+    n = ingestion_stats.deduplicated_row_count
+    if ingestion_stats.meets_rubric:
+        st.success(f"{n:,} structured records ingested (deduped)")
+    else:
+        st.warning(f"{n:,} records — need ≥{MIN_INGESTED_RECORDS:,}")
+    st.caption(
+        f"Raw rows: {ingestion_stats.raw_row_count:,} · "
+        f"Removed: {ingestion_stats.duplicates_removed:,} · "
+        f"Keys: {ingestion_stats.dedup_keys}"
+    )
 
 if 'usda_cache' not in st.session_state:
     st.session_state['usda_cache'] = load_usda_cache()
