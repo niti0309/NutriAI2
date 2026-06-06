@@ -1,719 +1,570 @@
-#In order to meet your constraint of having **600 to 800 completely unique dishes** sourced directly and strictly from your assigned authoritative data platforms (USDA FoodData Central, Monash University Low-FODMAP list, and the NIH RDA guidelines), we cannot reuse or pad the previous 149-item template via loops.
-
-#Instead, we expand the explicit source database array to contain **exactly 620 distinct USDA search queries**. Every single item map contains a legitimate, verified search phrase matching actual foods indexed across the specified USDA FoodData Central Foundation and SR Legacy databases, cross-tagged with official Monash clinical sensitivities.
-
-#The complete, refactored `fetch_usda_data.py` containing all unique dishes is structured below:
-
 """
 fetch_usda_data.py — NutriAI food database builder
-Refactored for BAX-423 Big Data · Spring 2026 · UC Davis GSM
+Run ONCE locally to pull real nutrient data from USDA FoodData Central.
 
-Statically builds an unlooped, non-repetitive dataset containing exactly
-620 distinct, unique source items sourced from USDA FoodData Central,
-Monash University Low-FODMAP parameters, and NIH RDA tables.
+Usage:
+    cd /Users/nitipatel/Downloads/nutriai/data
+    python fetch_usda_data.py
+
+Requires: pip install requests pandas
+Produces: food_database.csv  (5,000+ USDA foods — curated dishes + bulk catalog)
+Takes:    ~5-15 minutes (rate-limited to respect USDA 1,000 req/hour cap)
 """
 
-import requests
-import pandas as pd
-import time
-import os
+import requests, pandas as pd, time, os, copy, random
 
 API_KEY  = "0cgLd6SqV4l6qf0Xudmfyi71vnGglJMwkZaYq1ei"
 BASE_URL = "https://api.nal.usda.gov/fdc/v1"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 620 DISTINCT DISHES (NO LOOPS, NO DUPLICATES)
+# 400+ DISTINCT DISHES
 # Format: (usda_search_query, display_name, cuisine, diet_tags, allergens, categories)
+#
+# diet_tags   — pipe-separated from: vegan, vegetarian, pescatarian,
+#               non-vegetarian, gluten-free, halal, kosher
+# allergens   — pipe-separated from: dairy, eggs, gluten, soy, fish,
+#               shellfish, tree nuts, peanuts, sesame, none
+# categories  — pipe-separated from: breakfast, grain, legume, protein,
+#               seafood, vegetable, salad, soup, snack, main, side, dessert, light
 # ─────────────────────────────────────────────────────────────────────────────
 FOOD_QUERIES = [
-    # --- INDIAN (1 - 65) ---
-    ("idli steamed rice cake", "Idli Sambar", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("dosa fermented crepe", "Masala Dosa", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("upma semolina", "Upma", "Indian", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast"),
-    ("poha flattened rice", "Poha", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("besan chickpea flour pancake", "Besan Chilla", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|breakfast"),
-    ("paratha whole wheat flatbread", "Aloo Paratha", "Indian", "vegetarian|halal|kosher", "gluten|dairy", "grain|breakfast"),
-    ("oats porridge", "Oatmeal with Banana", "Indian", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast"),
-    ("rava semolina pancake", "Rava Uttapam", "Indian", "vegetarian|halal|kosher", "gluten|dairy", "grain|breakfast"),
-    ("dhokla steamed chickpea", "Dhokla", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|snack"),
-    ("egg omelette", "Masala Omelette", "Indian", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast"),
-    ("vermicelli upma", "Seviyan Upma", "Indian", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast"),
-    ("sprouts mung bean salad", "Sprouts Chaat", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|breakfast|snack"),
-    ("red lentils cooked", "Masoor Dal", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("yellow moong dal cooked", "Moong Dal Tadka", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("toor dal pigeon pea", "Toor Dal", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("kidney beans cooked", "Rajma Chawal", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("chickpeas cooked", "Chole Bhature", "Indian", "vegan|vegetarian|halal|kosher", "gluten", "legume|main"),
-    ("chickpea chana masala", "Chana Masala", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("paneer cottage cheese", "Paneer Tikka Masala", "Indian", "vegetarian|gluten-free|kosher", "dairy", "protein|main"),
-    ("paneer palak spinach", "Saag Paneer", "Indian", "vegetarian|gluten-free|kosher", "dairy", "protein|main"),
-    ("paneer matar peas", "Matar Paneer", "Indian", "vegetarian|gluten-free|kosher", "dairy", "protein|main"),
-    ("tofu firm", "Tofu Palak", "Indian", "vegan|vegetarian|gluten-free", "soy", "protein|main"),
-    ("cauliflower potato curry", "Aloo Gobi", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("eggplant baingan bharta", "Baingan Bharta", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("mixed vegetable curry", "Sabzi Medley", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("spinach lentil dal", "Palak Dal", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("chicken tikka masala", "Chicken Tikka Masala", "Indian", "non-vegetarian|gluten-free|halal", "dairy", "protein|main"),
-    ("chicken breast tandoori", "Tandoori Chicken", "Indian", "non-vegetarian|gluten-free|halal", "dairy", "protein|main"),
-    ("chicken korma", "Chicken Korma", "Indian", "non-vegetarian|gluten-free|halal", "dairy|tree nuts", "protein|main"),
-    ("lamb mutton curry", "Mutton Curry", "Indian", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("fish curry coconut", "Goan Fish Curry", "Indian", "pescatarian|non-vegetarian|gluten-free|halal", "fish", "seafood|main"),
-    ("prawn shrimp masala", "Prawn Masala", "Indian", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("basmati rice cooked", "Vegetable Biryani", "Indian", "vegan|vegetarian|halal|kosher", "none", "grain|main"),
-    ("chicken biryani rice", "Chicken Biryani", "Indian", "non-vegetarian|halal", "none", "grain|main"),
-    ("lamb biryani", "Lamb Biryani", "Indian", "non-vegetarian|halal", "none", "grain|main"),
-    ("sambar lentil vegetable stew", "Sambar", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("rasam tamarind soup", "Rasam", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "soup|light"),
-    ("pav bhaji mixed vegetable", "Pav Bhaji", "Indian", "vegetarian|halal|kosher", "gluten|dairy", "vegetable|main"),
-    ("curd rice yogurt", "Curd Rice", "Indian", "vegetarian|gluten-free|kosher", "dairy", "grain|main"),
-    ("khichdi lentil rice", "Khichdi", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("haleem wheat lentil meat", "Dal Makhani", "Indian", "vegetarian|gluten-free|kosher", "dairy", "legume|main"),
-    ("baingan aloo eggplant potato", "Aloo Baingan", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("okra bhindi stir fry", "Bhindi Masala", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("cabbage stir fry indian", "Patta Gobi", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("mushroom matar curry", "Mushroom Matar", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("methi malai muttar", "Methi Matar Malai", "Indian", "vegetarian|gluten-free|kosher", "dairy", "vegetable|main"),
-    ("lauki bottle gourd curry", "Lauki Ki Sabzi", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("ridge gourd turai cooked", "Turai Sabzi", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("pumpkin kaddu curry", "Kaddu Ki Sabzi", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("black eyed peas cooked lobia", "Lobia Curry", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("brown chickpeas kala chana", "Kala Chana Masala", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("paneer bhurji scrambled", "Paneer Bhurji", "Indian", "vegetarian|gluten-free|kosher", "dairy", "protein|main"),
-    ("egg curry boiled", "Anda Curry", "Indian", "non-vegetarian|vegetarian|gluten-free|halal|kosher", "eggs", "protein|main"),
-    ("fish tikka tandoori grilled", "Fish Tikka", "Indian", "pescatarian|non-vegetarian|gluten-free|halal", "fish", "seafood|main"),
-    ("jeera cumin rice cooked", "Jeera Rice", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("lemon rice peanuts south indian", "Lemon Rice", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "peanuts", "grain|main"),
-    ("saffron rice pilaf", "Saffron Rice", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("quinoa upma breakfast", "Quinoa Upma", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("oats idli steamed", "Oats Idli", "Indian", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast"),
-    ("ragi finger millet roti", "Ragi Roti", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("moong dal chilla pancake", "Moong Dal Chilla", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|breakfast"),
-    ("paneer sandwich whole wheat", "Paneer Toast", "Indian", "vegetarian|halal|kosher", "gluten|dairy", "grain|breakfast"),
-    ("spiced buttermilk chaas", "Chaas", "Indian", "vegetarian|gluten-free|kosher", "dairy", "dairy|light"),
-    ("cucumber raita yogurt sauce", "Cucumber Raita", "Indian", "vegetarian|gluten-free|kosher", "dairy", "dairy|side"),
-    ("onion tomato kachumber salad", "Kachumber Salad", "Indian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad"),
 
-    # --- AMERICAN (66 - 150) ---
-    ("rolled oats cooked", "Classic Oatmeal", "American", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast"),
-    ("overnight oats milk", "Overnight Oats", "American", "vegetarian|halal|kosher", "gluten|dairy", "grain|breakfast"),
-    ("egg whites scrambled", "Egg White Scramble", "American", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast"),
-    ("whole eggs fried", "Eggs and Avocado Toast", "American", "vegetarian|halal|kosher", "eggs|gluten", "protein|breakfast"),
-    ("greek yogurt plain fat free", "Greek Yogurt Parfait", "American", "vegetarian|gluten-free|kosher", "dairy", "dairy|breakfast"),
-    ("banana smoothie protein", "Banana Protein Smoothie", "American", "vegetarian|gluten-free|halal|kosher", "dairy", "fruit|breakfast"),
-    ("chia seeds pudding hydration", "Chia Pudding", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("whole wheat pancakes batter", "Whole Wheat Pancakes", "American", "vegetarian|halal|kosher", "gluten|eggs|dairy", "grain|breakfast"),
-    ("blueberry muffin wheat bran", "Bran Muffin", "American", "vegetarian|halal|kosher", "gluten|eggs|dairy", "grain|breakfast"),
-    ("granola oat honey clusters", "Granola Bowl", "American", "vegan|vegetarian|halal|kosher", "gluten|tree nuts", "grain|breakfast"),
-    ("cottage cheese low fat", "Cottage Cheese Bowl", "American", "vegetarian|gluten-free|kosher", "dairy", "dairy|breakfast|protein"),
-    ("avocado toast rustic sourdough", "Avocado Toast", "American", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|breakfast"),
-    ("smoothie bowl acai berry", "Acai Bowl", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|breakfast"),
-    ("turkey sausage link breakfast", "Turkey Sausage & Eggs", "American", "non-vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast"),
-    ("chicken breast skinless grilled", "Grilled Chicken Salad", "American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main|salad"),
-    ("turkey breast roasted meat", "Turkey & Sweet Potato", "American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("ground turkey lean pan fried", "Turkey Meatballs", "American", "non-vegetarian|halal|kosher", "gluten|eggs", "protein|main"),
-    ("salmon fillet wild baked", "Baked Salmon", "American", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("tuna canned chunk light water", "Tuna Salad Wrap", "American", "pescatarian|non-vegetarian|halal|kosher", "fish|gluten", "seafood|main"),
-    ("sweet potato baked sweet", "Stuffed Sweet Potato", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("black beans boiled salt", "Black Bean Burrito Bowl", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("quinoa grain cooked", "Quinoa Power Bowl", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main"),
-    ("brown rice long grain cooked", "Brown Rice Buddha Bowl", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main"),
-    ("lentils green brown boiled", "Lentil Salad Main", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("black bean burger vegetarian", "Black Bean Burger", "American", "vegan|vegetarian|halal", "gluten|soy", "legume|main"),
-    ("chicken soup meat noodle vegetable", "Chicken Noodle Soup", "American", "non-vegetarian|halal|kosher", "gluten", "protein|soup"),
-    ("vegetable beef chunk stew", "Beef & Veggie Stew", "American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("caesar salad romaine parmesan", "Caesar Salad", "American", "vegetarian|gluten-free", "eggs|dairy|fish", "vegetable|salad"),
-    ("cobb salad chicken bacon egg", "Cobb Salad", "American", "non-vegetarian|gluten-free", "eggs|dairy", "protein|salad"),
-    ("spinach salad strawberry walnut", "Spinach Strawberry Salad", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad"),
-    ("shrimp pacific stir fry vegetable", "Shrimp Stir Fry", "American", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("tilapia fillet baked fresh", "Lemon Herb Tilapia", "American", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("beef sirloin steak lean grilled", "Sirloin & Broccoli", "American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("pasta whole wheat spaghetti marinara", "Whole Wheat Pasta", "American", "vegan|vegetarian|halal|kosher", "gluten", "grain|main"),
-    ("egg salad sandwich whole wheat", "Egg Salad Toast", "American", "vegetarian|halal|kosher", "gluten|eggs", "protein|breakfast"),
-    ("waffles whole grain toasted", "Toasted Waffles", "American", "vegetarian|halal|kosher", "gluten|eggs|dairy", "grain|breakfast"),
-    ("cornmeal porridge mush boiled", "Cornmeal Porridge", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("hash brown potatoes fried shredded", "Hash Brown Plate", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|breakfast"),
-    ("beef ground loin lean broiled", "Beef Burger Loin", "American", "non-vegetarian|halal|kosher", "gluten", "protein|main"),
-    ("pork chop loin lean broiled", "Lean Pork Chop", "American", "non-vegetarian", "none", "protein|main"),
-    ("chicken drumstick skinless roasted", "Roasted Drumsticks", "American", "non-vegetarian|halal|kosher", "none", "protein|main"),
-    ("cod Atlantic fillet baked", "Baked Cod Fish", "American", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("scallops mixed species steamed", "Bay Scallops Dinner", "American", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("lobster northern cooked steam", "Steamed Lobster Tail", "American", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("crab meat raw dungeness", "Crab Cake Main", "American", "pescatarian|non-vegetarian|halal", "shellfish|eggs|gluten", "seafood|main"),
-    ("lentil soup canned ready to serve", "Canned Lentil Soup", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("tomato soup canned condensed vegetable", "Classic Tomato Soup", "American", "vegetarian|halal|kosher", "dairy", "vegetable|soup"),
-    ("potato soup creamy dehydrated mix", "Potato Leek Soup", "American", "vegetarian|kosher", "dairy", "vegetable|soup"),
-    ("chili con carne canned with beans", "Beef Chili with Beans", "American", "non-vegetarian|halal|kosher", "none", "protein|soup"),
-    ("turkey chili with beans cooked", "Lean Turkey Chili", "American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("waldorf salad apple celery walnut", "Waldorf Salad Base", "American", "vegetarian|gluten-free|kosher", "tree nuts|eggs", "fruit|salad"),
-    ("coleslaw salad cabbage dressing", "Classic Coleslaw", "American", "vegetarian|gluten-free|halal|kosher", "eggs", "vegetable|salad"),
-    ("macaroni potato salad standard", "American Potato Salad", "American", "vegetarian|halal|kosher", "eggs", "vegetable|salad"),
-    ("green bean casserole baked cream", "Green Bean Casserole", "American", "vegetarian|kosher", "gluten|dairy", "vegetable|side"),
-    ("macaroni and cheese baked standard", "Baked Mac and Cheese", "American", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("pot pie chicken commercial crust", "Chicken Pot Pie", "American", "non-vegetarian|halal|kosher", "gluten|dairy", "protein|main"),
-    ("meatloaf beef pork mixture baked", "Home-style Meatloaf", "American", "non-vegetarian", "gluten|eggs", "protein|main"),
-    ("pork ribs barbecue sauced cooked", "BBQ Pork Ribs", "American", "non-vegetarian", "none", "protein|main"),
-    ("chicken wings buffalo fried sauced", "Buffalo Chicken Wings", "American", "non-vegetarian|halal", "none", "protein|main"),
-    ("pot roast beef chuck braised", "Beef Pot Roast", "American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("pork pulled slow cooked bbq", "Pulled Pork Sandwich", "American", "non-vegetarian", "gluten", "protein|main"),
-    ("shepherds pie lamb beef vegetable", "Classic Shepherds Pie", "American", "non-vegetarian|gluten-free|halal", "dairy", "protein|main"),
-    ("rice cakes brown grain puffed", "Puffed Rice Cakes", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|snack|light"),
-    ("broccoli florets steamed plain", "Steamed Broccoli Side", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("sweet potato wedges baked roasted", "Sweet Potato Wedges", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("cucumber tomato tossed salad vinegar", "Cucumber Tomato Salad", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad|light"),
-    ("whey protein shake powder mixed", "Whey Protein Shake", "American", "vegetarian|gluten-free|halal|kosher", "dairy", "dairy|snack|breakfast"),
-    ("popcorn air popped unsalted", "Air Popped Popcorn", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|snack"),
-    ("celery sticks raw fresh", "Celery with Peanut Butter", "American", "vegan|vegetarian|gluten-free|halal|kosher", "peanuts", "vegetable|snack"),
-    ("baby carrots raw commercial", "Baby Carrots & Hummus", "American", "vegan|vegetarian|gluten-free|halal|kosher", "sesame", "vegetable|snack"),
-    ("almonds nuts dry roasted unsalted", "Handful of Almonds", "American", "vegan|vegetarian|gluten-free|halal|kosher", "tree nuts", "tree nuts|snack"),
-    ("walnuts nuts english raw halves", "Raw English Walnuts", "American", "vegan|vegetarian|gluten-free|halal|kosher", "tree nuts", "tree nuts|snack"),
-    ("peanuts dry roasted salt free", "Roasted Peanuts Pack", "American", "vegan|vegetarian|gluten-free|halal|kosher", "peanuts", "peanuts|snack"),
-    ("pumpkin seeds kernels roasted salt", "Roasted Pumpkin Seeds", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "snack|light"),
-    ("sunflower seed kernels dry roasted", "Toasted Sunflower Seeds", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "snack|light"),
-    ("string cheese mozzarella low moisture", "Mozzarella String Cheese", "American", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("beef jerky smoked lean strips", "Lean Beef Jerky", "American", "non-vegetarian|halal|kosher", "none", "protein|snack"),
-    ("turkey jerky premium lean stick", "Turkey Jerky Stick", "American", "non-vegetarian|halal|kosher", "none", "protein|snack"),
-    ("apples crisp raw fuji royal", "Fresh Fuji Apple", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
-    ("bananas raw sweet commercial dwarf", "Ripe Yellow Banana", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
-    ("oranges raw navel sweet seedless", "Juicy Navel Orange", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
-    ("strawberries raw fresh sweet summer", "Fresh Sweet Strawberries", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
-    ("blueberries raw wild cultivated highbush", "Fresh Cultivated Blueberries", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
-    ("raspberries red raw juicy fresh", "Plump Red Raspberries", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
-    ("grapes red or green raw", "Sweet Table Grapes", "American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|snack"),
+    # ══════════════════════════════════════════════════════
+    # INDIAN — Breakfast
+    # ══════════════════════════════════════════════════════
+    ("idli steamed rice cake",        "Idli Sambar",             "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|breakfast"),
+    ("dosa fermented crepe",          "Masala Dosa",             "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|breakfast"),
+    ("upma semolina",                 "Upma",                    "Indian",        "vegan|vegetarian|halal|kosher",              "gluten",            "grain|breakfast"),
+    ("poha flattened rice",           "Poha",                    "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|breakfast"),
+    ("besan chickpea flour pancake",  "Besan Chilla",            "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|breakfast"),
+    ("paratha whole wheat flatbread", "Aloo Paratha",            "Indian",        "vegetarian|halal|kosher",                    "gluten|dairy",      "grain|breakfast"),
+    ("oats porridge",                 "Oatmeal with Banana",     "Indian",        "vegan|vegetarian|halal|kosher",              "gluten",            "grain|breakfast"),
+    ("rava semolina pancake",         "Rava Uttapam",            "Indian",        "vegetarian|halal|kosher",                    "gluten|dairy",      "grain|breakfast"),
+    ("dhokla steamed chickpea",       "Dhokla",                  "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|snack"),
+    ("egg omelette",                  "Masala Omelette",         "Indian",        "vegetarian|gluten-free|halal|kosher",        "eggs",              "protein|breakfast"),
+    ("vermicelli upma",               "Seviyan Upma",            "Indian",        "vegan|vegetarian|halal|kosher",              "gluten",            "grain|breakfast"),
+    ("sprouts mung bean salad",       "Sprouts Chaat",           "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|breakfast|snack"),
 
-    # --- MEDITERRANEAN (151 - 225) ---
-    ("hummus chickpea paste spread", "Hummus & Veggie Plate", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "sesame", "legume|snack|light"),
-    ("falafel chickpea deep fried balls", "Falafel Wrap", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten|sesame", "legume|main"),
-    ("lentil red split soup boiled", "Red Lentil Soup", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("greek salad lettuce feta cucumber", "Greek Salad", "Mediterranean", "vegetarian|gluten-free|halal|kosher", "dairy", "vegetable|salad"),
-    ("chicken breast pieces skewered grilled", "Chicken Souvlaki", "Mediterranean", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("lamb meat ground kebab grilled", "Lamb Kebab", "Mediterranean", "non-vegetarian|halal", "none", "protein|main"),
-    ("grape leaves stuffed rice dolma", "Stuffed Grape Leaves", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main|light"),
-    ("tabbouleh bulgur wheat chopped parsley", "Tabbouleh", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "grain|salad"),
-    ("eggs poached spicy tomato shuka", "Shakshuka", "Mediterranean", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast"),
-    ("halloumi cheese goat sheep milk", "Grilled Halloumi", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "protein|main"),
-    ("sea bass mediterranean grilled fillet", "Grilled Sea Bass", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("octopus common species cooked boiled", "Grilled Octopus", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("fattoush salad romaine fried pita", "Fattoush Salad", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|salad"),
-    ("baba ganoush roasted eggplant sesame", "Baba Ganoush", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "sesame", "vegetable|snack"),
-    ("tzatziki greek yogurt cucumber dill", "Tzatziki Bowl", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "dairy|side|light"),
-    ("pita bread whole wheat flour", "Whole Wheat Pita", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "grain|side"),
-    ("moussaka eggplant potato ground lamb", "Moussaka", "Mediterranean", "non-vegetarian|halal", "gluten|dairy|eggs", "protein|main"),
-    ("spanakopita spinach feta pastry layers", "Spanakopita", "Mediterranean", "vegetarian|kosher", "gluten|dairy|eggs", "vegetable|main"),
-    ("caprese salad tomato mozzarella basil", "Caprese Salad", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "vegetable|salad"),
-    ("panzanella rustic bread tomato salad", "Panzanella", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|salad"),
-    ("watermelon fruit fresh feta mint", "Watermelon Salad", "Mediterranean", "vegetarian|gluten-free|halal|kosher", "dairy", "fruit|salad|light"),
-    ("couscous grain cooked plain", "Steamed Couscous", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "grain|side"),
-    ("chickpeas boiled mature seeds salt", "Mediterranean Chickpea Salad", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|salad"),
-    ("lentils black beluga cooked tender", "Beluga Lentil Salad", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("sardines Atlantic canned oil drained", "Sardines on Toast", "Mediterranean", "pescatarian|non-vegetarian|halal|kosher", "fish|gluten", "seafood|main"),
-    ("anchovy European canned oil drained", "Anchovy Caesar Plate", "Mediterranean", "pescatarian|non-vegetarian|gluten-free", "fish", "seafood|light"),
-    ("mackerel Atlantic grilled fillet skinless", "Herbed Grilled Mackerel", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("swordfish cooked dry heat fillet", "Grilled Swordfish Steak", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("red snapper cooked dry heat", "Baked Red Snapper", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("lamb shoulder lean roasted braised", "Slow Roasted Lamb Shoulder", "Mediterranean", "non-vegetarian|halal|kosher", "none", "protein|main"),
-    ("lamb leg shank lean roasted", "Braised Lamb Shank", "Mediterranean", "non-vegetarian|halal|kosher", "none", "protein|main"),
-    ("artichoke globe hearts boiled salted", "Braised Artichoke Hearts", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("fava beans broad mature boiled", "Foul Mudammas", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|breakfast|main"),
-    ("white beans cannellini boiled cooked", "Tuscan White Bean Stew", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("polenta yellow cornmeal cooked porridge", "Creamy Italian Polenta", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "grain|side"),
-    ("orzo whole wheat pasta cooked", "Mediterranean Orzo Salad", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "grain|salad"),
-    ("farro emmer wheat grain cooked", "Farro Salad Bowl", "American", "vegan|vegetarian|halal|kosher", "gluten", "grain|main"),
-    ("bulgur cracked wheat grain cooked", "Bulgur Pilaf", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "grain|main"),
-    ("eggplant aubergine slices grilled roasted", "Roasted Eggplant Slices", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("zucchini summer squash grilled oil", "Grilled Zucchini Ribbon", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("bell peppers sweet grilled mix", "Roasted Bell Peppers", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("fennel bulb raw sliced sweet", "Fennel Citrus Salad", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad"),
-    ("arugula rocket fresh raw greens", "Arugula Parmesan Salad", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "vegetable|salad"),
-    ("radicchio chicory raw fresh leaves", "Grilled Radicchio Bowl", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad"),
-    ("pomegranate juice fresh raw bottled", "Fresh Pomegranate Cup", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|light"),
-    ("figs common raw fresh sweet", "Fresh Figs & Prosciutto", "Mediterranean", "non-vegetarian|gluten-free|kosher", "none", "fruit|snack"),
-    ("dates deglet noor dried mature", "Stuffed Goat Cheese Dates", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "fruit|snack"),
-    ("olives kalamata greek brine pack", "Kalamata Olives Dish", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|snack"),
-    ("capers canned pickled flower buds", "Caper Herb Dressing Dish", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("pine nuts pinyon species dried", "Toasted Pine Nuts Bowl", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "tree nuts", "tree nuts|snack"),
-    ("pistachio nuts dry roasted salt", "Roasted Pistachios Bowl", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "tree nuts", "tree nuts|snack"),
-    ("feta cheese sheep goat milk", "Feta Blocks with Herbs", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("ricotta cheese whole milk commercial", "Ricotta Honey Spread Toast", "Mediterranean", "vegetarian|halal|kosher", "dairy|gluten", "dairy|breakfast"),
-    ("parmesan cheese hard grated commercial", "Aged Parmesan Shaves", "Mediterranean", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("peperoncini pickled chili peppers jar", "Pickled Peperoncini Side", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("lentil dahl soup spice mix", "Spiced Lentil Soup", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("chickpea soup clear broth vegetable", "Clear Chickpea Broth", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("fish soup white stock snapper", "Mediterranean Fish Soup", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|soup"),
-    ("seafood stew squid shrimp tomato", "Cioppino Seafood Stew", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal", "fish|shellfish", "seafood|soup"),
-    ("lamb stew leg chunks vegetable", "Moroccan Lamb Ragout", "Mediterranean", "non-vegetarian|halal|kosher", "none", "protein|soup"),
-    ("minestrone soup commercial canned style", "Canned Rustic Minestrone", "Mediterranean", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|soup"),
-    ("gazpacho cold tomato spanish soup", "Andalusian Gazpacho", "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|soup"),
-    ("white fish cod pan seared", "Pan Seared Whitefish", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("tilapia fish fillet grilled olive", "Grilled Tilapia Med", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("tuna bluefin fresh steak grilled", "Seared Bluefin Tuna", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("shrimp tail on grilled garlic", "Garlic Shrimp Skewers", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("clams mixed species steamed shell", "Steamed Clams in Wine", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("mussels blue species cooked steam", "Garlic White Wine Mussels", "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("squid calamari rings floured fried", "Fried Calamari Plate", "Mediterranean", "pescatarian|non-vegetarian|halal", "shellfish|gluten", "seafood|main"),
-    ("chicken thighs bone-in roasted herb", "Herbed Roasted Chicken Thighs", "Mediterranean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("turkey breast cutlet pan seared", "Seared Turkey Cutlets", "Mediterranean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("beef flank steak grilled marinated", "Marinated Flank Steak", "Mediterranean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("veal cutlet lean broiled cooked", "Mediterranean Veal Medallion", "Mediterranean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("pork tenderloin lean roasted medallions", "Herb Pork Tenderloin Medallions", "Mediterranean", "non-vegetarian", "none", "protein|main"),
-    ("rabbit meat wild domesticated stewed", "Traditional Rabbit Stew", "Mediterranean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
+    # ══════════════════════════════════════════════════════
+    # INDIAN — Mains & Curries
+    # ══════════════════════════════════════════════════════
+    ("red lentils cooked",            "Masoor Dal",              "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("yellow moong dal cooked",       "Moong Dal Tadka",         "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|soup"),
+    ("toor dal pigeon pea",           "Toor Dal",                "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("kidney beans cooked",           "Rajma Chawal",            "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("chickpeas cooked",              "Chole Bhature",           "Indian",        "vegan|vegetarian|halal|kosher",              "gluten",            "legume|main"),
+    ("chickpea chana masala",         "Chana Masala",            "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("paneer cottage cheese",         "Paneer Tikka Masala",     "Indian",        "vegetarian|gluten-free|kosher",              "dairy",             "protein|main"),
+    ("paneer palak spinach",          "Saag Paneer",             "Indian",        "vegetarian|gluten-free|kosher",              "dairy",             "protein|main"),
+    ("paneer matar peas",             "Matar Paneer",            "Indian",        "vegetarian|gluten-free|kosher",              "dairy",             "protein|main"),
+    ("tofu firm",                     "Tofu Palak",              "Indian",        "vegan|vegetarian|gluten-free",               "soy",               "protein|main"),
+    ("cauliflower potato curry",      "Aloo Gobi",               "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("eggplant baingan bharta",       "Baingan Bharta",          "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("mixed vegetable curry",         "Sabzi Medley",            "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("spinach lentil dal",            "Palak Dal",               "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("chicken tikka masala",          "Chicken Tikka Masala",    "Indian",        "non-vegetarian|gluten-free|halal",           "dairy",             "protein|main"),
+    ("chicken breast tandoori",       "Tandoori Chicken",        "Indian",        "non-vegetarian|gluten-free|halal",           "dairy",             "protein|main"),
+    ("chicken korma",                 "Chicken Korma",           "Indian",        "non-vegetarian|gluten-free|halal",           "dairy|tree nuts",   "protein|main"),
+    ("lamb mutton curry",             "Mutton Curry",            "Indian",        "non-vegetarian|gluten-free|halal",           "none",              "protein|main"),
+    ("fish curry coconut",            "Goan Fish Curry",         "Indian",        "pescatarian|non-vegetarian|gluten-free|halal","fish",             "seafood|main"),
+    ("prawn shrimp masala",           "Prawn Masala",            "Indian",        "pescatarian|non-vegetarian|gluten-free|halal","shellfish",        "seafood|main"),
+    ("basmati rice cooked",           "Vegetable Biryani",       "Indian",        "vegan|vegetarian|halal|kosher",              "none",              "grain|main"),
+    ("chicken biryani rice",          "Chicken Biryani",         "Indian",        "non-vegetarian|halal",                       "none",              "grain|main"),
+    ("lamb biryani",                  "Lamb Biryani",            "Indian",        "non-vegetarian|halal",                       "none",              "grain|main"),
+    ("sambar lentil vegetable stew",  "Sambar",                  "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|soup"),
+    ("rasam tamarind soup",           "Rasam",                   "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "soup|light"),
+    ("pav bhaji mixed vegetable",     "Pav Bhaji",               "Indian",        "vegetarian|halal|kosher",                    "gluten|dairy",      "vegetable|main"),
+    ("curd rice yogurt",              "Curd Rice",               "Indian",        "vegetarian|gluten-free|kosher",              "dairy",             "grain|main"),
+    ("khichdi lentil rice",           "Khichdi",                 "Indian",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("haleem wheat lentil meat",      "Dal Makhani",             "Indian",        "vegetarian|gluten-free|kosher",              "dairy",             "legume|main"),
 
-    # --- ITALIAN (226 - 290) ---
-    ("pasta whole wheat spaghetti cooked", "Pasta Primavera", "Italian", "vegan|vegetarian|halal", "gluten", "grain|main"),
-    ("pasta tube shaped marinara tomato", "Spaghetti Marinara", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "grain|main"),
-    ("pasta ribbon shaped pesto basil", "Pasta al Pesto", "Italian", "vegetarian|halal|kosher", "gluten|dairy|tree nuts", "grain|main"),
-    ("risotto arborio rice mixed vegetable", "Vegetable Risotto", "Italian", "vegetarian|gluten-free|kosher", "dairy", "grain|main"),
-    ("risotto short grain mushroom broth", "Mushroom Risotto", "Italian", "vegetarian|gluten-free|kosher", "dairy", "grain|main"),
-    ("minestrone soup tuscan bean vegetable", "Minestrone Soup", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|soup"),
-    ("pizza thin crust margherita cheese", "Margherita Pizza", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("pizza dough wheat vegetables mixed", "Veggie Pizza", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("bruschetta toasted rustic bread tomato", "Bruschetta", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|snack|light"),
-    ("zucchini summer squash noodles raw", "Zucchini Noodles", "Italian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("chicken cutlet piccata lemon caper", "Chicken Piccata", "Italian", "non-vegetarian|halal|kosher", "gluten|eggs", "protein|main"),
-    ("salmon pasta cream sauce lemon", "Salmon Pasta", "Italian", "pescatarian|non-vegetarian|halal|kosher", "fish|gluten|dairy", "seafood|main"),
-    ("lentil mixture bolognese sauce pasta", "Lentil Bolognese", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "legume|main"),
-    ("frittata open faced egg vegetable", "Vegetable Frittata", "Italian", "vegetarian|gluten-free|kosher", "eggs|dairy", "protein|breakfast|main"),
-    ("polenta cornmeal grilled wedges tomato", "Polenta & Ragu", "Italian", "vegetarian|gluten-free|kosher", "dairy", "grain|main"),
-    ("ribollita stale bread bean soup", "Ribollita", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "legume|soup"),
-    ("arancini stuffed rice balls fried", "Arancini", "Italian", "vegetarian|halal|kosher", "gluten|eggs|dairy", "grain|snack"),
-    ("gnocchi potato wheat dumplings cooked", "Potato Gnocchi Sorrentina", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("lasagna pasta noodles vegetable layers", "Vegetarian Lasagna", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("ravioli cheese filled pasta tomato", "Cheese Ravioli", "Italian", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|main"),
-    ("tortellini spinach filled pasta broth", "Spinach Tortellini Soup", "Italian", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|soup"),
-    ("ciabatta white wheat bread sliced", "Ciabatta Olive Oil Plate", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "grain|side"),
-    ("focaccia rosemary olive oil flatbread", "Rosemary Focaccia", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "grain|side"),
-    ("panettone sweet bread fruit commercial", "Panettone Slice", "Italian", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|dessert"),
-    ("biscotti almond dry cookie crisp", "Almond Biscotti Treat", "Italian", "vegetarian|halal|kosher", "gluten|tree nuts|eggs", "grain|dessert"),
-    ("carpaccio raw beef sirloin lemon", "Beef Carpaccio Plater", "Italian", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|light"),
-    ("prosciutto dry cured ham sliced", "Prosciutto Melon Wraps", "Italian", "non-vegetarian|gluten-free", "none", "protein|snack"),
-    ("salami hard pork beef dry", "Italian Salami Shaves", "Italian", "non-vegetarian", "none", "protein|snack"),
-    ("pancetta Italian cured pork belly", "Crispy Pancetta Bits", "Italian", "non-vegetarian", "none", "protein|side"),
-    ("calzone pizza folded dough cheese", "Four Cheese Calzone", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("panini sandwich chicken mozzarella grill", "Chicken Mozzarella Panini", "Italian", "non-vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("stracciatella egg drop roman soup", "Stracciatella Soup", "Italian", "vegetarian|gluten-free|kosher", "eggs|dairy", "protein|soup"),
-    ("cioppino san francisco seafood stew", "Tuscan Cioppino Stew", "Italian", "pescatarian|non-vegetarian|gluten-free|halal", "fish|shellfish", "seafood|soup"),
-    ("ribollita vegetable white bean kale", "Tuscan Kale & Bean Soup", "Italian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("pappa al pomodoro bread tomato", "Pappa al Pomodoro", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "grain|soup"),
-    ("pasta fagioli bean macaroni soup", "Pasta e Fagioli", "Italian", "vegan|vegetarian|halal|kosher", "gluten", "legume|soup"),
-    ("wedding soup Italian chicken meatballs", "Italian Wedding Soup", "Italian", "non-vegetarian|halal|kosher", "gluten|eggs", "protein|soup"),
-    ("bolognese sauce meat slow cooked", "Classic Beef Ragout", "Italian", "non-vegetarian|gluten-free|halal|kosher", "dairy", "protein|main"),
-    ("alfredo sauce cream parmesan commercial", "Fettuccine Alfredo Bowl", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("carbonara bacon egg parmesan pasta", "Spaghetti Carbonara", "Italian", "non-vegetarian", "gluten|eggs|dairy", "grain|main"),
-    ("puttanesca tomato olive caper anchovy", "Spaghetti Puttanesca", "Italian", "pescatarian|non-vegetarian|halal|kosher", "gluten|fish", "grain|main"),
-    ("vongole clams garlic olive pasta", "Spaghetti alle Vongole", "Italian", "pescatarian|non-vegetarian|halal", "gluten|shellfish", "seafood|main"),
-    ("cacciatore chicken braised tomato pepper", "Chicken Cacciatore", "Italian", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("osso buco veal shank braised", "Osso Buco Milanese", "Italian", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("saltimbocca veal cutlet prosciutto sage", "Veal Saltimbocca", "Italian", "non-vegetarian|gluten-free", "none", "protein|main"),
-    ("parmigiana eggplant layered cheese baked", "Eggplant Parmigiana", "Italian", "vegetarian|halal|kosher", "gluten|dairy", "vegetable|main"),
-    ("scampi shrimp garlic butter wine", "Shrimp Scampi Pack", "Italian", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish|dairy", "seafood|main"),
-    ("porchetta savory roasted pork traditional", "Porchetta Roast Slice", "Italian", "non-vegetarian", "none", "protein|main"),
-    ("fiorentina t-bone beef steak charcoal", "Bistecca alla Fiorentina", "Italian", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("polpette beef pork Italian meatballs", "Classic Italian Meatballs", "Italian", "non-vegetarian", "gluten|eggs", "protein|main"),
-    ("caponata sicilian eggplant sweet sour", "Sicilian Caponata", "Italian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("peperonata stewed bell peppers olive", "Peperonata Rustica", "Italian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("gorgonzola blue veined cow milk", "Gorgonzola Cheese Wedges", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("provolone cheese semi hard domestic", "Provolone Cheese Wedges", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("fontina cheese cow milk domestic", "Fontina Cheese Wedges", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("pecorino romano sheep milk cheese", "Pecorino Romano Shaves", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("taleggio rind washed cow cheese", "Taleggio Cheese Blocks", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("burrata cream filled fresh mozzarella", "Fresh Burrata Ball", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("mascarpone double cream cow cheese", "Mascarpone Cheese Tubs", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|snack"),
-    ("tiramisu espresso coffee ladyfinger dessert", "Classic Tiramisu Cake", "Italian", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|dessert"),
-    ("panna cotta gelatin milk dessert", "Vanilla Panna Cotta", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|dessert"),
-    ("cannoli pastry shell ricotta cream", "Sicilian Cannoli", "Italian", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|dessert"),
-    ("affogato vanilla ice cream espresso", "Espresso Affogato", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|dessert"),
-    ("granita icicle sugar fruit flavor", "Lemon Italian Granita", "Italian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|dessert"),
-    ("gelato ice cream artisanal commercial", "Italian Gelato Scoop", "Italian", "vegetarian|gluten-free|kosher", "dairy", "dairy|dessert"),
+    # ══════════════════════════════════════════════════════
+    # AMERICAN — Breakfast
+    # ══════════════════════════════════════════════════════
+    ("rolled oats cooked",            "Classic Oatmeal",         "American",      "vegan|vegetarian|halal|kosher",              "gluten",            "grain|breakfast"),
+    ("overnight oats",                "Overnight Oats",          "American",      "vegetarian|halal|kosher",                    "gluten|dairy",      "grain|breakfast"),
+    ("egg whites scrambled",          "Egg White Scramble",      "American",      "vegetarian|gluten-free|halal|kosher",        "eggs",              "protein|breakfast"),
+    ("whole eggs fried",              "Eggs and Avocado Toast",  "American",      "vegetarian|halal|kosher",                    "eggs|gluten",       "protein|breakfast"),
+    ("greek yogurt plain",            "Greek Yogurt Parfait",    "American",      "vegetarian|gluten-free|kosher",              "dairy",             "dairy|breakfast"),
+    ("banana smoothie",               "Banana Protein Smoothie", "American",      "vegetarian|gluten-free|halal|kosher",        "dairy",             "fruit|breakfast"),
+    ("chia seeds",                    "Chia Pudding",            "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|breakfast"),
+    ("whole wheat pancakes",          "Whole Wheat Pancakes",    "American",      "vegetarian|halal|kosher",                    "gluten|eggs|dairy", "grain|breakfast"),
+    ("blueberry muffin bran",         "Bran Muffin",             "American",      "vegetarian|halal|kosher",                    "gluten|eggs|dairy", "grain|breakfast"),
+    ("granola oat clusters",          "Granola Bowl",            "American",      "vegan|vegetarian|halal|kosher",              "gluten|tree nuts",  "grain|breakfast"),
+    ("cottage cheese",                "Cottage Cheese Bowl",     "American",      "vegetarian|gluten-free|kosher",              "dairy",             "dairy|breakfast|protein"),
+    ("avocado toast sourdough",       "Avocado Toast",           "American",      "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|breakfast"),
+    ("smoothie bowl acai",            "Acai Bowl",               "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "fruit|breakfast"),
+    ("turkey sausage breakfast",      "Turkey Sausage & Eggs",   "American",      "non-vegetarian|gluten-free|halal|kosher",    "eggs",              "protein|breakfast"),
 
-    # --- JAPANESE (291 - 355) ---
-    ("miso soup tofu seaweed dashi", "Miso Soup", "Japanese", "vegan|vegetarian|gluten-free", "soy", "soup|light"),
-    ("edamame pods steamed salted green", "Edamame", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "soy", "legume|snack"),
-    ("sushi nori salmon roll raw", "Salmon Sushi Roll", "Japanese", "pescatarian|non-vegetarian|gluten-free", "fish|soy", "seafood|main"),
-    ("sushi nori tuna roll raw", "Tuna Sushi Roll", "Japanese", "pescatarian|non-vegetarian|gluten-free", "fish|soy", "seafood|main"),
-    ("sushi vegetable cucumber roll seaweed", "Veggie Sushi Roll", "Japanese", "vegan|vegetarian|gluten-free", "soy|sesame", "grain|main"),
-    ("ramen noodle soup wheat chicken", "Chicken Ramen", "Japanese", "non-vegetarian|halal", "gluten|eggs|soy", "grain|soup"),
-    ("udon noodle soup wheat broth vegetable", "Vegetable Udon", "Japanese", "vegan|vegetarian|halal", "gluten|soy", "grain|soup"),
-    ("soba buckwheat noodles cold sauce", "Cold Soba", "Japanese", "vegan|vegetarian|halal|kosher", "gluten", "grain|main"),
-    ("donburi chicken egg rice onion", "Oyakodon", "Japanese", "non-vegetarian|gluten-free", "eggs|soy", "grain|main"),
-    ("tofu agedashi deep fried broth", "Agedashi Tofu", "Japanese", "vegan|vegetarian", "gluten|soy", "protein|main"),
-    ("teriyaki salmon fish fillet sweet", "Teriyaki Salmon", "Japanese", "pescatarian|non-vegetarian|gluten-free", "fish|soy", "seafood|main"),
-    ("teriyaki chicken thigh meat sweet", "Teriyaki Chicken", "Japanese", "non-vegetarian", "gluten|soy", "protein|main"),
-    ("katsu chicken cutlet breaded fried", "Chicken Katsu", "Japanese", "non-vegetarian|halal", "gluten|eggs", "protein|main"),
-    ("onigiri triangles rice dried seaweed", "Onigiri", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|snack|light"),
-    ("sunomono Japanese cucumber salad vinegar", "Sunomono Salad", "Japanese", "vegan|vegetarian|gluten-free", "soy|sesame", "vegetable|salad"),
-    ("gyoza wrappers pork cabbage panfried", "Gyoza", "Japanese", "non-vegetarian", "gluten|pork", "protein|snack"),
-    ("gyoza wrappers mixed vegetable panfried", "Veggie Gyoza", "Japanese", "vegan|vegetarian", "gluten|soy", "vegetable|snack"),
-    ("yakisoba wheat stirfry noodles sauce", "Yakisoba", "Japanese", "non-vegetarian", "gluten|soy", "grain|main"),
-    ("chawanmushi dashi egg custard savory", "Chawanmushi", "Japanese", "vegetarian|gluten-free", "eggs|soy", "protein|light"),
-    ("ochazuke hot green tea poured rice", "Ochazuke", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|light"),
-    ("tempura shrimp seafood battered fried", "Shrimp Tempura Basket", "Japanese", "pescatarian|non-vegetarian|halal", "shellfish|gluten|eggs", "seafood|main"),
-    ("tempura vegetable sweet potato fried", "Vegetable Tempura Platter", "Japanese", "vegetarian|halal", "gluten|eggs", "vegetable|main"),
-    ("sukiyaki beef tofu noodle sweet stew", "Beef Sukiyaki Hotpot", "Japanese", "non-vegetarian", "gluten|soy", "protein|main"),
-    ("shabu shabu thin beef sliced hotpot", "Shabu Shabu Dinner", "Japanese", "non-vegetarian|gluten-free", "soy|sesame", "protein|main"),
-    ("tonkatsu pork cutlet breaded fried", "Tonkatsu Plate", "Japanese", "non-vegetarian", "gluten|eggs", "protein|main"),
-    ("katsudon pork cutlet egg rice bowl", "Katsudon Bowl", "Japanese", "non-vegetarian", "gluten|eggs|soy", "grain|main"),
-    ("gyudon beef onion sweet rice bowl", "Gyudon Beef Bowl", "Japanese", "non-vegetarian", "gluten|soy", "grain|main"),
-    ("unadon grilled eel sweet glaze rice", "Unadon Eel Bowl", "Japanese", "pescatarian|non-vegetarian", "fish|gluten|soy", "seafood|main"),
-    ("chirashi bowl assorted raw fish rice", "Chirashi Sushi Bowl", "Japanese", "pescatarian|non-vegetarian|gluten-free", "fish|soy", "seafood|main"),
-    ("sashimi tuna yellowfin raw sliced", "Tuna Sashimi Plate", "Japanese", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|light"),
-    ("sashimi salmon Atlantic raw sliced", "Salmon Sashimi Plate", "Japanese", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|light"),
-    ("sashimi octopus raw sliced tentacles", "Takosu Octopus Sashimi", "Japanese", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|light"),
-    ("tataki seared tuna ginger soy", "Tuna Tataki Platter", "Japanese", "pescatarian|non-vegetarian|gluten-free", "fish|soy", "seafood|light"),
-    ("yakitori chicken skewers charcoal grilled", "Yakitori Skewers", "Japanese", "non-vegetarian|halal", "gluten|soy", "protein|main"),
-    ("hamachi yellowtail collar grilled kama", "Hamachi Kama Grilled", "Japanese", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|main"),
-    ("hamburg steak Japanese style wafu", "Wafu Hamburg Steak", "Japanese", "non-vegetarian", "gluten|eggs|soy", "protein|main"),
-    ("korokke potato meat croquette fried", "Potato Korokke Basket", "Japanese", "non-vegetarian", "gluten|eggs", "vegetable|snack"),
-    ("okonomiyaki savory pancake cabbage bacon", "Okonomiyaki Pancake", "Japanese", "non-vegetarian", "gluten|eggs|pork", "grain|main"),
-    ("takoyaki octopus balls battered fried", "Takoyaki Street Pack", "Japanese", "pescatarian|non-vegetarian", "shellfish|gluten|eggs", "seafood|snack"),
-    ("tsukemono pickled radish cucumber dynamic", "Tsukemono Pickle Medley", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("wakame seaweed sweet vinegar salad", "Wakame Seaweed Salad", "Japanese", "vegan|vegetarian|gluten-free", "sesame", "vegetable|salad"),
-    ("hijiki brown seaweed soy braised", "Hijiki Seaweed Braise", "Japanese", "vegan|vegetarian|gluten-free", "soy", "vegetable|side"),
-    ("ohitashi blanched spinach dashi soy", "Spinach Ohitashi", "Japanese", "vegan|vegetarian", "gluten|soy", "vegetable|side"),
-    ("nasu dengaku miso glazed eggplant", "Miso Nasu Dengaku", "Japanese", "vegan|vegetarian|gluten-free", "soy", "vegetable|main"),
-    ("agedofu silken tofu cubed steam", "Steamed Silken Tofu", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "soy", "protein|side"),
-    ("natto fermented soybeans sticky texture", "Natto Rice Pack", "Japanese", "vegan|vegetarian|gluten-free", "soy", "legume|breakfast"),
-    ("tamagoyaki rolled sweet egg omelet", "Tamagoyaki Sweet Omelet", "Japanese", "vegetarian|gluten-free", "eggs|soy", "protein|breakfast"),
-    ("zaru soba cold noodles bamboo", "Zaru Soba Cold", "Japanese", "vegan|vegetarian|halal|kosher", "gluten", "grain|main"),
-    ("kitsune udon fried sweet tofu", "Kitsune Udon Pack", "Japanese", "vegan|vegetarian|halal", "gluten|soy", "grain|soup"),
-    ("tempura udon shrimp wheat noodle", "Tempura Udon Pack", "Japanese", "pescatarian|non-vegetarian|halal", "shellfish|gluten|soy", "grain|soup"),
-    ("curry rice Japanese brand sauce", "Japanese Chicken Curry", "Japanese", "non-vegetarian|halal", "gluten", "grain|main"),
-    ("katsu curry pork cutlet sauce", "Pork Katsu Curry", "Japanese", "non-vegetarian", "gluten", "grain|main"),
-    ("dango sweet rice flour dumplings", "Mitarashi Dango Sticks", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "soy", "grain|dessert"),
-    ("mochi sweet rice dough paste", "Red Bean Mochi Cake", "Japanese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|dessert"),
-    ("dorayaki sweet pancakes red bean", "Dorayaki Pancake Treat", "Japanese", "vegetarian|halal|kosher", "gluten|eggs", "grain|dessert"),
+    # ══════════════════════════════════════════════════════
+    # AMERICAN — Mains
+    # ══════════════════════════════════════════════════════
+    ("chicken breast grilled",        "Grilled Chicken Salad",   "American",      "non-vegetarian|gluten-free|halal|kosher",    "none",              "protein|main|salad"),
+    ("turkey breast roasted",         "Turkey & Sweet Potato",   "American",      "non-vegetarian|gluten-free|halal|kosher",    "none",              "protein|main"),
+    ("ground turkey lean",            "Turkey Meatballs",        "American",      "non-vegetarian|halal|kosher",                "gluten|eggs",       "protein|main"),
+    ("salmon fillet baked",           "Baked Salmon",            "American",      "pescatarian|non-vegetarian|gluten-free|halal|kosher","fish",      "seafood|main"),
+    ("tuna canned water",             "Tuna Salad Wrap",         "American",      "pescatarian|non-vegetarian|halal|kosher",    "fish|gluten",       "seafood|main"),
+    ("sweet potato baked",            "Stuffed Sweet Potato",    "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("black beans cooked",            "Black Bean Burrito Bowl", "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("quinoa cooked",                 "Quinoa Power Bowl",       "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|main"),
+    ("brown rice cooked",             "Brown Rice Buddha Bowl",  "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|main"),
+    ("lentils green cooked",          "Lentil Tacos",            "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("black bean burger patty",       "Black Bean Burger",       "American",      "vegan|vegetarian|halal",                     "gluten|soy",        "legume|main"),
+    ("chicken soup noodle",           "Chicken Noodle Soup",     "American",      "non-vegetarian|halal|kosher",                "gluten",            "protein|soup"),
+    ("vegetable beef stew",           "Beef & Veggie Stew",      "American",      "non-vegetarian|gluten-free|halal|kosher",    "none",              "protein|soup"),
+    ("caesar salad romaine",          "Caesar Salad",            "American",      "vegetarian|gluten-free",                     "eggs|dairy|fish",   "vegetable|salad"),
+    ("cobb salad chicken",            "Cobb Salad",              "American",      "non-vegetarian|gluten-free",                 "eggs|dairy",        "protein|salad"),
+    ("spinach salad strawberry",      "Spinach Strawberry Salad","American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|salad"),
+    ("shrimp stir fry vegetables",    "Shrimp Stir Fry",         "American",      "pescatarian|non-vegetarian|gluten-free|halal","shellfish",        "seafood|main"),
+    ("tilapia fillet baked",          "Lemon Herb Tilapia",      "American",      "pescatarian|non-vegetarian|gluten-free|halal|kosher","fish",      "seafood|main"),
+    ("beef sirloin lean grilled",     "Sirloin & Broccoli",      "American",      "non-vegetarian|gluten-free|halal|kosher",    "none",              "protein|main"),
+    ("pasta whole wheat marinara",    "Whole Wheat Pasta",       "American",      "vegan|vegetarian|halal|kosher",              "gluten",            "grain|main"),
 
-    # --- CHINESE (356 - 420) ---
-    ("congee savory white rice porridge", "Congee", "Chinese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|breakfast"),
-    ("dim sum wrappers pork steamed", "Steamed Dumplings", "Chinese", "non-vegetarian", "gluten|pork", "protein|snack"),
-    ("stir fry mix vegetables tofu", "Buddha Bowl", "Chinese", "vegan|vegetarian|gluten-free", "soy", "vegetable|main"),
-    ("kung pao chicken breast peanut", "Kung Pao Chicken", "Chinese", "non-vegetarian|halal", "peanuts|soy", "protein|main"),
-    ("mapo tofu minced pork spicy", "Mapo Tofu", "Chinese", "non-vegetarian", "soy", "protein|main"),
-    ("fried rice long grain egg veggie", "Veggie Fried Rice", "Chinese", "vegetarian|halal|kosher", "eggs|soy", "grain|main"),
-    ("beef broccoli wok stir fry", "Beef & Broccoli", "Chinese", "non-vegetarian|gluten-free|halal", "soy", "protein|main"),
-    ("wonton wrappers minced chicken soup", "Wonton Soup", "Chinese", "non-vegetarian", "gluten|eggs", "protein|soup"),
-    ("spring roll wrapper vegetable fried", "Vegetable Spring Rolls", "Chinese", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|snack"),
-    ("hot sour soup tofu woodear", "Hot & Sour Soup", "Chinese", "vegan|vegetarian|gluten-free", "soy", "protein|soup"),
-    ("steamed whole fish ginger scallion", "Steamed Ginger Fish", "Chinese", "pescatarian|non-vegetarian|gluten-free|halal", "fish|soy", "seafood|main"),
-    ("eggplant sweet garlic spicy sauce", "Eggplant in Garlic Sauce", "Chinese", "vegan|vegetarian|gluten-free", "soy", "vegetable|main"),
-    ("sesame wheat noodles sauce toss", "Sesame Noodles", "Chinese", "vegan|vegetarian|halal", "gluten|soy|sesame", "grain|main"),
-    ("green beans snap stir fry", "Stir Fry Green Beans", "Chinese", "vegan|vegetarian|gluten-free", "soy", "vegetable|side"),
-    ("clay pot chicken rice casserole", "Clay Pot Rice", "Chinese", "non-vegetarian", "gluten|soy", "grain|main"),
-    ("baozi steamed bun leek pork", "Steamed Pork Bao Bun", "Chinese", "non-vegetarian", "gluten|pork", "grain|breakfast"),
-    ("baozi steamed bun sweet redbean", "Red Bean Bao Bun", "Chinese", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast"),
-    ("xiaolongbao soup dumplings minced pork", "Shanghai Soup Dumplings", "Chinese", "non-vegetarian", "gluten|pork", "protein|snack"),
-    ("shumai open face shrimp dumplings", "Shrimp Shumai Dimsum", "Chinese", "pescatarian|non-vegetarian", "gluten|shellfish", "seafood|snack"),
-    ("scallion pancake pan fried wheat", "Crispy Scallion Pancake", "Chinese", "vegan|vegetarian|halal|kosher", "gluten", "grain|breakfast|snack"),
-    ("egg drop soup chicken broth", "Classic Egg Drop Soup", "Chinese", "vegetarian|gluten-free|halal|kosher", "eggs", "soup|light"),
-    ("west lake beef soup cilantro", "West Lake Beef Soup", "Chinese", "non-vegetarian|gluten-free|halal|kosher", "eggs", "protein|soup"),
-    ("dan dan wheat noodles pork", "Szechuan Dan Dan Noodles", "Chinese", "non-vegetarian", "gluten|soy|peanuts", "grain|main"),
-    ("chow mein stir fry wheat noodles", "Chicken Chow Mein", "Chinese", "non-vegetarian|halal", "gluten|soy", "grain|main"),
-    ("lo mein tossed soft wheat noodles", "Beef Lo Mein Bowl", "Chinese", "non-vegetarian|halal", "gluten|soy", "grain|main"),
-    ("ho fen wide flat rice noodles", "Beef Chow Fun", "Chinese", "non-vegetarian|gluten-free|halal", "soy", "grain|main"),
-    ("singapore vermicelli rice noodles curry", "Singapore Rice Noodles", "Chinese", "non-vegetarian|gluten-free|halal", "eggs|shrimp", "grain|main"),
-    ("peking duck crispy skin breast", "Peking Duck Wraps", "Chinese", "non-vegetarian|halal", "gluten|soy", "protein|main"),
-    ("sweet sour pork battered fried", "Sweet and Sour Pork", "Chinese", "non-vegetarian", "gluten|pork", "protein|main"),
-    ("orange chicken crispy fried sweet", "Crispy Orange Chicken", "Chinese", "non-vegetarian|halal", "gluten|eggs", "protein|main"),
-    ("general tso chicken chunks spicy", "General Tso Chicken", "Chinese", "non-vegetarian|halal", "gluten|soy", "protein|main"),
-    ("char siu roasted barbecue pork", "Barbecued Char Siu Pork", "Chinese", "non-vegetarian", "soy|pork", "protein|main"),
-    ("twice cooked pork belly slices", "Szechuan Twice Cooked Pork", "Chinese", "non-vegetarian", "soy|pork", "protein|main"),
-    ("lion head pork meatballs braised", "Lion Head Meatballs", "Chinese", "non-vegetarian", "gluten|soy|pork", "protein|main"),
-    ("lemon chicken fried breast sauce", "Tangy Lemon Chicken", "Chinese", "non-vegetarian|halal", "gluten|eggs", "protein|main"),
-    ("shrimp lobster sauce minced egg", "Shrimp in Lobster Sauce", "Chinese", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish|eggs", "seafood|main"),
-    ("kung pao shrimp peanut spicy", "Kung Pao Shrimp", "Chinese", "pescatarian|non-vegetarian|halal", "shellfish|soy|peanuts", "seafood|main"),
-    ("salt pepper calamari rings squid", "Salt & Pepper Squid", "Chinese", "pescatarian|non-vegetarian|halal", "shellfish|gluten", "seafood|main"),
-    ("stir fry scallops snap peas", "Wok Seared Scallops", "Chinese", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("bitter gourd stir fry egg", "Bitter Melon & Eggs", "Chinese", "vegetarian|gluten-free|halal|kosher", "eggs", "vegetable|side"),
-    ("bok choy steamed garlic oil", "Garlic Bok Choy", "Chinese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("gai lan Chinese broccoli oyster", "Gai Lan in Oyster Sauce", "Chinese", "pescatarian|non-vegetarian|gluten-free", "fish", "vegetable|side"),
-    ("cabbage hand torn wok stirfry", "Szechuan Cabbage Stirfry", "Chinese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("tomato scrambled egg pan stirfry", "Tomato Scrambled Eggs", "Chinese", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast|main"),
-    ("ma po tofu vegetarian mushroom", "Vegetarian Mapo Tofu", "Chinese", "vegan|vegetarian|gluten-free", "soy", "protein|main"),
-    ("white cut chicken whole poached", "Cantonese White Cut Chicken", "Chinese", "non-vegetarian|gluten-free|halal|kosher", "soy", "protein|main"),
-    ("black pepper beef iron platter", "Sizzling Black Pepper Beef", "Chinese", "non-vegetarian|halal", "soy", "protein|main"),
-    ("mongolian beef sliced flank scallion", "Mongolian Beef Plate", "Chinese", "non-vegetarian|halal", "gluten|soy", "protein|main"),
-    ("honey walnut shrimp crispy sweetened", "Honey Walnut Shrimp", "Chinese", "pescatarian|non-vegetarian|gluten-free", "shellfish|tree nuts|eggs", "seafood|main"),
-    ("tea eggs boiled spiced cracked", "Chinese Marble Tea Eggs", "Chinese", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|snack"),
-    ("hot pot broth dynamic assorted", "Szechuan Hot Pot Feast", "Chinese", "non-vegetarian", "soy", "protein|main"),
-    ("rice vermicelli noodle soup vegetable", "Rice Noodles in Broth", "Chinese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|soup"),
-    ("egg tart pastry sweet custard", "Hong Kong Egg Tarts", "Chinese", "vegetarian|halal|kosher", "gluten|eggs|dairy", "grain|dessert"),
-    ("nian gao sweet rice cake", "New Year Rice Cake", "Chinese", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|dessert"),
-    ("sesame balls glutinous rice paste", "Crispy Sesame Balls", "Chinese", "vegan|vegetarian|gluten-free|halal|kosher", "sesame", "grain|dessert"),
+    # ══════════════════════════════════════════════════════
+    # MEDITERRANEAN
+    # ══════════════════════════════════════════════════════
+    ("hummus chickpea spread",        "Hummus & Veggie Plate",   "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher",  "sesame",            "legume|snack|light"),
+    ("falafel chickpea patty",        "Falafel Wrap",            "Mediterranean", "vegan|vegetarian|halal|kosher",              "gluten|sesame",     "legume|main"),
+    ("lentil red soup",               "Red Lentil Soup",         "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|soup"),
+    ("greek salad cucumber tomato",   "Greek Salad",             "Mediterranean", "vegetarian|gluten-free|halal|kosher",        "dairy",             "vegetable|salad"),
+    ("chicken souvlaki grilled",      "Chicken Souvlaki",        "Mediterranean", "non-vegetarian|gluten-free|halal",           "none",              "protein|main"),
+    ("lamb kebab grilled",            "Lamb Kebab",              "Mediterranean", "non-vegetarian|halal",                       "none",              "protein|main"),
+    ("stuffed grape leaves dolma",    "Stuffed Grape Leaves",    "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|main|light"),
+    ("tabbouleh bulgur parsley",      "Tabbouleh",               "Mediterranean", "vegan|vegetarian|halal|kosher",              "gluten",            "grain|salad"),
+    ("shakshuka eggs tomato sauce",   "Shakshuka",               "Mediterranean", "vegetarian|gluten-free|halal|kosher",        "eggs",              "protein|breakfast"),
+    ("halloumi cheese grilled",       "Grilled Halloumi",        "Mediterranean", "vegetarian|gluten-free|kosher",              "dairy",             "protein|main"),
+    ("sea bass grilled lemon",        "Grilled Sea Bass",        "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal|kosher","fish",      "seafood|main"),
+    ("octopus grilled",               "Grilled Octopus",         "Mediterranean", "pescatarian|non-vegetarian|gluten-free|halal","shellfish",        "seafood|main"),
+    ("fattoush salad pita",           "Fattoush Salad",          "Mediterranean", "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|salad"),
+    ("baba ganoush eggplant",         "Baba Ganoush",            "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher",  "sesame",            "vegetable|snack"),
+    ("tzatziki yogurt cucumber",      "Tzatziki Bowl",           "Mediterranean", "vegetarian|gluten-free|kosher",              "dairy",             "dairy|side|light"),
+    ("pita bread whole wheat",        "Whole Wheat Pita",        "Mediterranean", "vegan|vegetarian|halal|kosher",              "gluten",            "grain|side"),
+    ("moussaka eggplant lamb",        "Moussaka",                "Mediterranean", "non-vegetarian|halal",                       "gluten|dairy|eggs", "protein|main"),
+    ("spanakopita spinach feta",      "Spanakopita",             "Mediterranean", "vegetarian|kosher",                          "gluten|dairy|eggs", "vegetable|main"),
+    ("caprese salad mozzarella",      "Caprese Salad",           "Mediterranean", "vegetarian|gluten-free|kosher",              "dairy",             "vegetable|salad"),
+    ("panzanella bread tomato salad", "Panzanella",              "Mediterranean", "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|salad"),
 
-    # --- KOREAN (421 - 485) ---
-    ("bibimbap mixed rice meat bowl", "Bibimbap", "Korean", "vegetarian", "eggs|gluten", "grain|main"),
-    ("bibimbap vegetables mixed tofu rice", "Veg Bibimbap", "Korean", "vegan|vegetarian|gluten-free", "soy", "grain|main"),
-    ("kimchi stew aged pork tofu", "Kimchi Jjigae", "Korean", "non-vegetarian", "gluten|soy", "protein|soup"),
-    ("doenjang soybean paste fermented stew", "Doenjang Jjigae", "Korean", "vegetarian", "soy", "protein|soup"),
-    ("sundubu jjigae soft tofu egg", "Sundubu Jjigae", "Korean", "vegetarian", "soy|eggs", "protein|soup"),
-    ("japchae glass potato noodles sweet", "Japchae", "Korean", "vegetarian|gluten-free", "eggs|soy", "grain|main"),
-    ("bulgogi beef ribeye marinated grill", "Bulgogi", "Korean", "non-vegetarian", "gluten|soy", "protein|main"),
-    ("samgyeopsal pork belly uncured raw", "Grilled Pork Belly", "Korean", "non-vegetarian", "gluten|soy", "protein|main"),
-    ("dakgalbi spicy chicken thigh dynamic", "Dakgalbi", "Korean", "non-vegetarian|gluten-free", "soy", "protein|main"),
-    ("mackerel whole grilled fish salt", "Grilled Mackerel", "Korean", "pescatarian|non-vegetarian|gluten-free|halal", "fish", "seafood|main"),
-    ("tteokbokki rice cylinder cake chili", "Tteokbokki", "Korean", "vegan|vegetarian", "gluten|soy", "grain|snack"),
-    ("haemul pajeon spring onion seafood", "Seafood Pancake", "Korean", "pescatarian|non-vegetarian", "gluten|eggs|shellfish", "seafood|main"),
-    ("gimbap seaweed wrap rice pickled", "Gimbap", "Korean", "pescatarian|non-vegetarian|gluten-free", "eggs|soy|sesame", "grain|main|snack"),
-    ("doenjang soup vegetable squash clear", "Korean Veggie Soup", "Korean", "vegan|vegetarian", "soy", "vegetable|soup"),
-    ("galbi beef short ribs marinated", "LA Galbi Short Ribs", "Korean", "non-vegetarian", "gluten|soy", "protein|main"),
-    ("samgyetang chicken ginseng whole soup", "Samgyetang Ginseng Soup", "Korean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("seolleongtang beef bone milky soup", "Seolleongtang Ox Bone Soup", "Korean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("yukgaejang spicy shredded beef soup", "Yukgaejang Spicy Beef Soup", "Korean", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("ttoekguk rice cake slice soup", "Tteokguk Rice Cake Soup", "Korean", "non-vegetarian|halal|kosher", "eggs", "grain|soup"),
-    ("manduguk meat dumpling clear soup", "Mandu Dumpling Soup", "Korean", "non-vegetarian", "gluten|eggs", "protein|soup"),
-    ("miyeokguk seaweed clear garlic soup", "Miyeokguk Seaweed Soup", "Korean", "non-vegetarian|gluten-free|halal|kosher", "none", "soup|light"),
-    ("jajangmyeon black bean wheat noodles", "Jajangmyeon Black Bean Pasta", "Korean", "non-vegetarian", "gluten|soy|pork", "grain|main"),
-    ("jjamppong spicy seafood noodle soup", "Jjamppong Spicy Noodle Soup", "Korean", "pescatarian|non-vegetarian", "gluten|shellfish", "grain|soup"),
-    ("naengmyeon cold buckwheat noodle beef", "Mul Naengmyeon Cold Noodles", "Korean", "non-vegetarian|halal", "gluten|eggs", "grain|main"),
-    ("bibim naengmyeon spicy cold noodle", "Bibim Naengmyeon Noodles", "Korean", "vegetarian|halal", "gluten|eggs", "grain|main"),
-    ("kalguksu knife cut noodle chicken", "Kalguksu Noodle Soup", "Korean", "non-vegetarian|halal", "gluten", "grain|soup"),
-    ("kongguksu cold soy milk noodle", "Kongguksu Creamy Soy Noodles", "Korean", "vegan|vegetarian|gluten-free", "soy", "grain|main"),
-    ("jokbal pigs feet cooked soy", "Jokbal Braised Pigs Feet", "Korean", "non-vegetarian", "soy|pork", "protein|main"),
-    ("bossam pork belly boiled herbs", "Bossam Pork Wraps", "Korean", "non-vegetarian", "soy|pork", "protein|main"),
-    ("tangsuyuk sweet sour crispy chicken", "Tangsuyuk Crispy Chicken", "Korean", "non-vegetarian|halal", "gluten|eggs", "protein|main"),
-    ("jeyuk bokkeum spicy pork stirfry", "Jeyuk Bokkeum Spicy Pork", "Korean", "non-vegetarian", "soy|pork", "protein|main"),
-    ("ojingeo bokkeum spicy squid stirfry", "Ojingeo Bokkeum Spicy Squid", "Korean", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("dakgangjeong crispy sweet fried chicken", "Dakgangjeong Sweet Chicken", "Korean", "non-vegetarian|halal", "gluten|peanuts|sesame", "protein|main"),
-    ("kimchi fried rice egg seaweed", "Kimchi Bokkeumbap", "Korean", "vegetarian", "eggs|soy", "grain|main"),
-    ("omurice fried rice wrapped egg", "Korean Omurice Bowl", "Korean", "non-vegetarian|halal|kosher", "eggs", "grain|main"),
-    ("gorgan bap white rice barley", "Mixed Barley Rice", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("nurungji scorched crust crispy rice", "Nurungji Crispy Rice Tea", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|light"),
-    ("mandu wrappers pork minced fried", "Fried Mandu Dumplings", "Korean", "non-vegetarian", "gluten|pork", "protein|snack"),
-    ("pajeon green onion wheat flour", "Pajeon Scallion Pancake", "Korean", "vegetarian|halal|kosher", "gluten|eggs", "grain|snack"),
-    ("kimchijeon spicy kimchi flour pancake", "Kimchijeon Kimchi Pancake", "Korean", "vegetarian", "gluten", "grain|snack"),
-    ("gamjajeon grated potato pan pancake", "Gamjajeon Potato Pancake", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|snack"),
-    ("dubujon pan fried tofu egg", "Dubu Jeon Seared Tofu", "Korean", "vegetarian|gluten-free", "eggs|soy", "protein|side"),
-    ("gyeran jjim steamed savory egg", "Gyeran Jjim Steamed Egg", "Korean", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|light"),
-    ("gamja jorim sweet soy potato", "Gamja Jorim Braised Potato", "Korean", "vegan|vegetarian|gluten-free", "soy", "vegetable|side"),
-    ("yeonroot jorim sweet soy lotus", "Lotus Root Jorim Braise", "Korean", "vegan|vegetarian|gluten-free", "soy", "vegetable|side"),
-    ("ojingeo chae spicy dried squid", "Spicy Dried Squid Strips", "Korean", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish|sesame", "seafood|snack"),
-    ("myeolchi bokkeum sweet dried anchovy", "Stir-fried Sweet Anchovies", "Korean", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish|sesame", "seafood|side"),
-    ("sigumich namul seasoned spinach sesame", "Sigumchi Namul Spinach", "Korean", "vegan|vegetarian|gluten-free", "soy|sesame", "vegetable|side"),
-    ("kongnamul namul seasoned soy sprouts", "Kongnamul Soybean Sprouts", "Korean", "vegan|vegetarian|gluten-free", "sesame", "vegetable|side"),
-    ("mu saengchae spicy shredded radish", "Mu Saengchae Radish Salad", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("oi muchim spicy cucumber salad", "Oi Muchim Cucumber Salad", "Korean", "vegan|vegetarian|gluten-free", "sesame", "vegetable|salad"),
-    ("gosari namul seasoned bracken fern", "Gosari Namul Fernside", "Korean", "vegan|vegetarian|gluten-free", "soy|sesame", "vegetable|side"),
-    ("hobak namul stirfried green zucchini", "Hobak Namul Zucchini Side", "Korean", "vegan|vegetarian|gluten-free", "sesame", "vegetable|side"),
-    ("gaji namul steamed seasoned eggplant", "Gaji Namul Eggplant Side", "Korean", "vegan|vegetarian|gluten-free", "soy|sesame", "vegetable|side"),
-    ("baechu kimchi fermented napa cabbage", "Traditional Napa Kimchi", "Korean", "vegan|vegetarian|gluten-free", "none", "vegetable|side"),
-    ("kkakdugi fermented diced radish kimchi", "Kkakdugi Radish Kimchi", "Korean", "vegan|vegetarian|gluten-free", "none", "vegetable|side"),
-    ("oi sobagi stuffed cucumber kimchi", "Oi Sobagi Cucumber Kimchi", "Korean", "vegan|vegetarian|gluten-free", "none", "vegetable|side"),
-    ("dongchimi watery mild white kimchi", "Dongchimi White Radish Water", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("bingsu shaved ice sweet milk", "Patbingsu Red Bean Shaved Ice", "Korean", "vegetarian|gluten-free|kosher", "dairy", "dairy|dessert"),
-    ("tteok sweet glutinous rice snacks", "Injeolmi Rice Cake Bites", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|dessert"),
-    ("yakgwa sweet wheat honey cookie", "Yakgwa Honey Cookie Treats", "Korean", "vegetarian|halal|kosher", "gluten", "grain|dessert"),
-    ("sujeonggwa cinnamon ginger cold drink", "Sujeonggwa Cinnamon Punch", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|dessert"),
-    ("sikhye sweet fermented rice drink", "Sikhye Sweet Malt Rice Drink", "Korean", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|dessert"),
-    ("hotteok sweet cinnamon brown sugar pancake", "Hotteok Sweet Brown Sugar Pancake", "Korean", "vegetarian|halal|kosher", "gluten|tree nuts", "grain|dessert"),
-    ("gyeran brap sweet egg bread", "Gyeran Bbang Egg Bread", "Korean", "vegetarian|halal|kosher", "gluten|eggs|dairy", "grain|breakfast"),
+    # ══════════════════════════════════════════════════════
+    # ITALIAN
+    # ══════════════════════════════════════════════════════
+    ("pasta whole wheat cooked",      "Pasta Primavera",         "Italian",       "vegan|vegetarian|halal",                     "gluten",            "grain|main"),
+    ("pasta marinara tomato sauce",   "Spaghetti Marinara",      "Italian",       "vegan|vegetarian|halal|kosher",              "gluten",            "grain|main"),
+    ("pasta pesto basil",             "Pasta al Pesto",          "Italian",       "vegetarian|halal|kosher",                    "gluten|dairy|tree nuts","grain|main"),
+    ("risotto arborio rice vegetable","Vegetable Risotto",       "Italian",       "vegetarian|gluten-free|kosher",              "dairy",             "grain|main"),
+    ("risotto mushroom",              "Mushroom Risotto",        "Italian",       "vegetarian|gluten-free|kosher",              "dairy",             "grain|main"),
+    ("minestrone soup vegetable",     "Minestrone Soup",         "Italian",       "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|soup"),
+    ("pizza margherita",              "Margherita Pizza",        "Italian",       "vegetarian|halal|kosher",                    "gluten|dairy",      "grain|main"),
+    ("pizza vegetables",              "Veggie Pizza",            "Italian",       "vegetarian|halal|kosher",                    "gluten|dairy",      "grain|main"),
+    ("bruschetta tomato bread",       "Bruschetta",              "Italian",       "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|snack|light"),
+    ("zucchini noodles raw",          "Zucchini Noodles",        "Italian",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("chicken piccata lemon caper",   "Chicken Piccata",         "Italian",       "non-vegetarian|halal|kosher",                "gluten|eggs",       "protein|main"),
+    ("salmon pasta lemon cream",      "Salmon Pasta",            "Italian",       "pescatarian|non-vegetarian|halal|kosher",    "fish|gluten|dairy", "seafood|main"),
+    ("lentil bolognese pasta",        "Lentil Bolognese",        "Italian",       "vegan|vegetarian|halal|kosher",              "gluten",            "legume|main"),
+    ("frittata egg vegetable",        "Vegetable Frittata",      "Italian",       "vegetarian|gluten-free|kosher",              "eggs|dairy",        "protein|breakfast|main"),
+    ("polenta corn grilled",          "Polenta & Ragu",          "Italian",       "vegetarian|gluten-free|kosher",              "dairy",             "grain|main"),
+    ("ribollita tuscan bean soup",    "Ribollita",               "Italian",       "vegan|vegetarian|halal|kosher",              "gluten",            "legume|soup"),
+    ("arancini rice balls",           "Arancini",                "Italian",       "vegetarian|halal|kosher",                    "gluten|eggs|dairy", "grain|snack"),
 
-    # --- THAI (486 - 520) ---
-    ("pad thai noodles stir fry peanut", "Pad Thai", "Thai", "pescatarian|non-vegetarian|gluten-free", "peanuts|eggs|shellfish", "grain|main"),
-    ("tom yum hot sour soup shrimp", "Tom Yum Soup", "Thai", "pescatarian|non-vegetarian|gluten-free|halal", "fish|shellfish", "seafood|soup"),
-    ("green curry chicken coconut milk", "Green Curry", "Thai", "non-vegetarian|gluten-free|halal", "fish", "protein|main"),
-    ("massaman curry beef potato peanut", "Massaman Curry", "Thai", "non-vegetarian|gluten-free|halal|kosher", "peanuts|fish", "protein|main"),
-    ("som tum papaya green salad", "Som Tum Salad", "Thai", "pescatarian|non-vegetarian|gluten-free|halal", "peanuts|fish", "vegetable|salad"),
-    ("mango sticky rice sweet coconut", "Mango Sticky Rice", "Thai", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|dessert"),
-    ("red curry shrimp bamboo shoot", "Thai Red Curry", "Thai", "pescatarian|non-vegetarian|gluten-free|halal", "fish|shellfish", "seafood|main"),
-    ("yellow curry vegetable potato milk", "Thai Yellow Curry", "Thai", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("panang curry pork sliced sweet", "Panang Curry", "Thai", "non-vegetarian|gluten-free", "fish", "protein|main"),
-    ("larb minced chicken mint salad", "Chicken Larb", "Thai", "non-vegetarian|gluten-free|halal", "fish", "protein|salad"),
-    ("basil chicken minced stir fry chili", "Basil Chicken", "Thai", "non-vegetarian|gluten-free|halal", "soy", "protein|main"),
-    ("pad see ew wide rice noodles beef", "Pad See Ew", "Thai", "non-vegetarian", "gluten|eggs|soy", "grain|main"),
-    ("satay chicken skewers peanut paste spice", "Chicken Satay", "Thai", "non-vegetarian|gluten-free|halal", "peanuts", "protein|snack"),
-    ("spring roll transparent fresh rice wrap", "Fresh Spring Rolls", "Thai", "vegan|vegetarian|gluten-free", "peanuts", "vegetable|light|snack"),
-    ("pineapple fried rice shrimp cashew", "Pineapple Fried Rice", "Thai", "pescatarian|non-vegetarian|gluten-free|halal", "tree nuts|eggs|shellfish", "grain|main"),
-    ("pad kee mao drunken noodles chicken", "Drunken Noodles", "Thai", "non-vegetarian|halal", "gluten|soy", "grain|main"),
-    ("tom kha gai chicken soup coconut", "Tom Kha Gai", "Thai", "non-vegetarian|gluten-free|halal", "fish", "protein|soup"),
-    ("thai fish cakes fried cod spice", "Thai Fish Cakes", "Thai", "pescatarian|non-vegetarian|gluten-free|halal", "fish|eggs", "seafood|snack"),
-    ("beef salad thai crying tiger lime", "Crying Tiger Beef", "Thai", "non-vegetarian|gluten-free|halal|kosher", "fish", "protein|salad"),
-    ("basil pork belly wok stirfry", "Crispy Basil Pork", "Thai", "non-vegetarian", "soy|pork", "protein|main"),
-    ("thai omelet crispy deep fried egg", "Kai Jeow Omelet", "Thai", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast"),
-    ("morning glory stir fry garlic soy", "Stir-fried Morning Glory", "Thai", "vegan|vegetarian|gluten-free", "soy", "vegetable|side"),
-    ("stir fry cashew chicken breast", "Cashew Chicken Thai", "Thai", "non-vegetarian|halal", "tree nuts|soy", "protein|main"),
-    ("sweet sour stir fry shrimp thai", "Thai Sweet and Sour Shrimp", "Thai", "pescatarian|non-vegetarian|halal", "shellfish|soy", "seafood|main"),
-    ("garlic pepper pork sliced tender", "Garlic Pepper Pork", "Thai", "non-vegetarian", "soy|pork", "protein|main"),
-    ("thai ginger chicken slice stirfry", "Gai Pad Khing Ginger Chicken", "Thai", "non-vegetarian|halal", "soy", "protein|main"),
-    ("mixed vegetables wok stir fry thai", "Thai Vegetable Stirfry", "Thai", "vegan|vegetarian|gluten-free", "soy", "vegetable|side"),
-    ("crab fried rice jasmin real egg", "Crab Fried Rice", "Thai", "pescatarian|non-vegetarian|halal", "shellfish|eggs", "grain|main"),
-    ("steamed jasmine rice white long grain", "Jasmine Rice Bowl", "Thai", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("thai sticky rice glutinous white", "Thai Sticky Rice Ball", "Thai", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("banana coconut milk sweet warm soup", "Bananas in Coconut Milk", "Thai", "vegan|vegetarian|gluten-free|halal|kosher", "none", "fruit|dessert"),
-    ("thai iced tea condensed sweet milk", "Thai Iced Tea Beverage", "Thai", "vegetarian|gluten-free|halal|kosher", "dairy", "dairy|dessert"),
-    ("thai pumpkin custard steamed real egg", "Thai Pumpkin Custard", "Thai", "vegetarian|gluten-free|halal|kosher", "eggs", "vegetable|dessert"),
-    ("coconut ice cream native thai style", "Thai Coconut Ice Cream", "Thai", "vegan|vegetarian|gluten-free|halal|kosher", "none", "dessert|light"),
-    ("crispy banana fritters sesame wheat fried", "Thai Fried Bananas", "Thai", "vegan|vegetarian|halal|kosher", "gluten|sesame", "fruit|dessert"),
+    # ══════════════════════════════════════════════════════
+    # JAPANESE
+    # ══════════════════════════════════════════════════════
+    ("miso soup tofu seaweed",        "Miso Soup",               "Japanese",      "vegan|vegetarian|gluten-free",               "soy",               "soup|light"),
+    ("edamame steamed",               "Edamame",                 "Japanese",      "vegan|vegetarian|gluten-free|halal|kosher",  "soy",               "legume|snack"),
+    ("sushi salmon roll",             "Salmon Sushi Roll",       "Japanese",      "pescatarian|non-vegetarian|gluten-free",     "fish|soy",          "seafood|main"),
+    ("sushi tuna roll",               "Tuna Sushi Roll",         "Japanese",      "pescatarian|non-vegetarian|gluten-free",     "fish|soy",          "seafood|main"),
+    ("sushi vegetable roll",          "Veggie Sushi Roll",       "Japanese",      "vegan|vegetarian|gluten-free",               "soy|sesame",        "grain|main"),
+    ("ramen noodle soup chicken",     "Chicken Ramen",           "Japanese",      "non-vegetarian|halal",                       "gluten|eggs|soy",   "grain|soup"),
+    ("udon noodle soup vegetable",    "Vegetable Udon",          "Japanese",      "vegan|vegetarian|halal",                     "gluten|soy",        "grain|soup"),
+    ("soba noodles cold",             "Cold Soba",               "Japanese",      "vegan|vegetarian|halal|kosher",              "gluten",            "grain|main"),
+    ("donburi chicken egg rice",      "Oyakodon",                "Japanese",      "non-vegetarian|gluten-free",                 "eggs|soy",          "grain|main"),
+    ("tofu agedashi fried",           "Agedashi Tofu",           "Japanese",      "vegan|vegetarian",                           "gluten|soy",        "protein|main"),
+    ("teriyaki salmon",               "Teriyaki Salmon",         "Japanese",      "pescatarian|non-vegetarian|gluten-free",     "fish|soy",          "seafood|main"),
+    ("teriyaki chicken",              "Teriyaki Chicken",        "Japanese",      "non-vegetarian",                             "gluten|soy",        "protein|main"),
+    ("katsu chicken breaded",         "Chicken Katsu",           "Japanese",      "non-vegetarian|halal",                       "gluten|eggs",       "protein|main"),
+    ("onigiri rice ball",             "Onigiri",                 "Japanese",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|snack|light"),
+    ("sunomono cucumber salad",       "Sunomono Salad",          "Japanese",      "vegan|vegetarian|gluten-free",               "soy|sesame",        "vegetable|salad"),
+    ("gyoza pork dumplings",          "Gyoza",                   "Japanese",      "non-vegetarian",                             "gluten|pork",       "protein|snack"),
+    ("gyoza vegetable dumplings",     "Veggie Gyoza",            "Japanese",      "vegan|vegetarian",                           "gluten|soy",        "vegetable|snack"),
+    ("yakisoba stir fry noodles",     "Yakisoba",                "Japanese",      "non-vegetarian",                             "gluten|soy",        "grain|main"),
+    ("chawanmushi steamed egg",       "Chawanmushi",             "Japanese",      "vegetarian|gluten-free",                     "eggs|soy",          "protein|light"),
+    ("ochazuke rice green tea",       "Ochazuke",                "Japanese",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|light"),
 
-    # --- MEXICAN (521 - 555) ---
-    ("black beans long grain rice burrito", "Burrito Bowl", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("chicken flour tortilla burrito wrap", "Chicken Burrito", "Mexican", "non-vegetarian|halal", "gluten|dairy", "protein|main"),
-    ("fish tacos corn cornmeal tilapia grilled", "Fish Tacos", "Mexican", "pescatarian|non-vegetarian|halal", "fish|gluten|dairy", "seafood|main"),
-    ("veggie fajitas sweet bell peppers onion", "Veggie Fajitas", "Mexican", "vegan|vegetarian|halal|kosher", "gluten", "vegetable|main"),
-    ("chicken breast strips fajitas skillet spice", "Chicken Fajitas", "Mexican", "non-vegetarian|halal", "gluten", "protein|main"),
-    ("guacamole fresh avocado mash lime salt", "Guacamole", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|snack"),
-    ("pico de gallo raw tomato onion", "Pico de Gallo", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|snack|side"),
-    ("enchiladas corn tortilla cheese blackbean", "Bean & Cheese Enchiladas", "Mexican", "vegetarian|halal|kosher", "gluten|dairy", "legume|main"),
-    ("taco pork shoulder marinated spit alpastor", "Al Pastor Tacos", "Mexican", "non-vegetarian|halal", "gluten", "protein|main"),
-    ("pozole dry hominy corn soup chicken", "Pozole", "Mexican", "non-vegetarian|gluten-free|halal", "none", "grain|soup"),
-    ("elote street corn cob mayo cheese", "Elote", "Mexican", "vegetarian|gluten-free|halal|kosher", "dairy", "vegetable|snack"),
-    ("lentil dry seeds taco spice alternative", "Lentil Tacos Mex", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("tortilla crispy strips soup chicken breast", "Tortilla Soup", "Mexican", "non-vegetarian|halal", "gluten", "protein|soup"),
-    ("chile relleno poblano pepper cheese egg", "Chile Relleno", "Mexican", "vegetarian|halal|kosher", "eggs|dairy", "vegetable|main"),
-    ("carne asada flank beef grilled skirt", "Carne Asada Platter", "Mexican", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("barbacoa shredded beef slow cooked cheek", "Barbacoa Beef Tacos", "Mexican", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("carnitas pork shoulder shredded lard fried", "Pork Carnitas Platter", "Mexican", "non-vegetarian", "none", "protein|main"),
-    ("shrimp ceviche lime cured cucumber onion", "Shrimp Ceviche", "Mexican", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|light"),
-    ("camarones al ajillo garlic shrimp mexican", "Camarones al Ajillo", "Mexican", "pescatarian|non-vegetarian|gluten-free|halal", "shellfish", "seafood|main"),
-    ("tostada crispy corn tortilla bean cheese", "Refried Bean Tostadas", "Mexican", "vegetarian|gluten-free|halal|kosher", "dairy", "legume|main"),
-    ("quesadilla flour tortilla melted jack cheese", "Cheese Quesadilla", "Mexican", "vegetarian|halal|kosher", "gluten|dairy", "grain|main"),
-    ("tamale corn dough masa chicken wrap", "Chicken Tamales", "Mexican", "non-vegetarian|gluten-free|halal", "none", "grain|main"),
-    ("chilaquiles fried corn tortilla salsa egg", "Chilaquiles con Huevo", "Mexican", "vegetarian|gluten-free|halal|kosher", "eggs|dairy", "grain|breakfast"),
-    ("huevos rancheros fried eggs corn tortilla", "Huevos Rancheros", "Mexican", "vegetarian|gluten-free|halal|kosher", "eggs", "protein|breakfast"),
-    ("refried pinto beans cooked mashed lardless", "Healthy Refried Pinto Beans", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|side"),
-    ("mexican rice long grain tomato cumin", "Spanish Tomato Rice", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("caldo de res beef shank vegetable soup", "Caldo de Res Beef Soup", "Mexican", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("sopa de fideo toasted noodle tomato soup", "Sopa de Fideo Noodle Soup", "Mexican", "vegan|vegetarian|halal|kosher", "gluten", "grain|soup"),
-    ("black bean soup mexican style spiced", "Spicy Black Bean Soup", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("nopales cactus pads sliced boiled salted", "Nopales Cactus Salad", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad"),
-    ("jicama root fresh raw sliced sticks", "Jicama Sticks with Chili-Lime", "Mexican", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|snack"),
-    ("churros fried wheat dough pastry sugar", "Cinnamon Churros Treat", "Mexican", "vegetarian|halal|kosher", "gluten", "grain|dessert"),
-    ("tres leches sponge cake sweet milks", "Tres Leches Cake Slice", "Mexican", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|dessert"),
-    ("flan baked egg custard caramel syrup", "Mexican Caramel Flan", "Mexican", "vegetarian|gluten-free|kosher", "eggs|dairy", "dairy|dessert"),
-    ("arroz con leche sweet rice milk pudding", "Arroz con Leche Rice Pudding", "Mexican", "vegetarian|gluten-free|halal|kosher", "dairy", "grain|dessert"),
+    # ══════════════════════════════════════════════════════
+    # CHINESE
+    # ══════════════════════════════════════════════════════
+    ("congee rice porridge",          "Congee",                  "Chinese",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|breakfast"),
+    ("dim sum steamed dumplings",     "Steamed Dumplings",       "Chinese",       "non-vegetarian",                             "gluten|pork",       "protein|snack"),
+    ("stir fry vegetables tofu",      "Buddha Bowl",             "Chinese",       "vegan|vegetarian|gluten-free",               "soy",               "vegetable|main"),
+    ("kung pao chicken peanut",       "Kung Pao Chicken",        "Chinese",       "non-vegetarian|halal",                       "peanuts|soy",       "protein|main"),
+    ("mapo tofu spicy",               "Mapo Tofu",               "Chinese",       "non-vegetarian",                             "soy",               "protein|main"),
+    ("fried rice egg vegetable",      "Veggie Fried Rice",       "Chinese",       "vegetarian|halal|kosher",                    "eggs|soy",          "grain|main"),
+    ("beef broccoli stir fry",        "Beef & Broccoli",         "Chinese",       "non-vegetarian|gluten-free|halal",           "soy",               "protein|main"),
+    ("wonton soup chicken",           "Wonton Soup",             "Chinese",       "non-vegetarian",                             "gluten|eggs",       "protein|soup"),
+    ("spring roll vegetable",         "Vegetable Spring Rolls",  "Chinese",       "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|snack"),
+    ("hot sour soup tofu",            "Hot & Sour Soup",         "Chinese",       "vegan|vegetarian|gluten-free",               "soy",               "protein|soup"),
+    ("steamed fish ginger scallion",  "Steamed Ginger Fish",     "Chinese",       "pescatarian|non-vegetarian|gluten-free|halal","fish|soy",         "seafood|main"),
+    ("eggplant garlic sauce",         "Eggplant in Garlic Sauce","Chinese",       "vegan|vegetarian|gluten-free",               "soy",               "vegetable|main"),
+    ("sesame noodles",                "Sesame Noodles",          "Chinese",       "vegan|vegetarian|halal",                     "gluten|soy|sesame", "grain|main"),
+    ("green beans stir fry",          "Stir Fry Green Beans",    "Chinese",       "vegan|vegetarian|gluten-free",               "soy",               "vegetable|side"),
+    ("clay pot rice casserole",       "Clay Pot Rice",           "Chinese",       "non-vegetarian",                             "gluten|soy",        "grain|main"),
 
-    # --- FRENCH (556 - 570) ---
-    ("ratatouille mixed vegetable olive stew", "Ratatouille", "French", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("nicoise salad albacore tuna boiled egg", "Salade Niçoise", "French", "pescatarian|non-vegetarian|gluten-free", "fish|eggs", "seafood|salad"),
-    ("soupe a loignon beef broth gruyere onion", "French Onion Soup", "French", "vegetarian|halal|kosher", "gluten|dairy", "vegetable|soup"),
-    ("quiche lorraine egg heavy cream pastry", "Quiche Lorraine", "French", "vegetarian|kosher", "gluten|eggs|dairy", "protein|main|breakfast"),
-    ("crepe buckwheat galette batter cooked plain", "Buckwheat Galette", "French", "vegetarian|gluten-free|halal|kosher", "eggs|dairy", "grain|breakfast"),
-    ("coq au vin chicken braised red wine mushroom", "Coq au Vin", "French", "non-vegetarian|gluten-free", "none", "protein|main"),
-    ("beef bourguignon stew beef chuck wine carrot", "Beef Bourguignon", "French", "non-vegetarian|gluten-free", "none", "protein|main"),
-    ("bouillabaisse fish shellfish saffron broth fennel", "Marseille Bouillabaisse", "French", "pescatarian|non-vegetarian|gluten-free", "fish|shellfish", "seafood|main"),
-    ("sole meuniere flatfish fillet butter lemon panfried", "Sole Meunière Fillet", "French", "pescatarian|non-vegetarian|halal|kosher", "fish|gluten|dairy", "seafood|main"),
-    ("duck confit leg cured slow cooked fat crisp", "Confit de Canard Leg", "French", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("pot au feu beef brisket oxtail root vegetable soup", "Pot-au-Feu Beef Soup", "French", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|soup"),
-    ("vichyssoise puréed leek potato cold cream soup", "Vichyssoise Cold Soup", "French", "vegetarian|gluten-free|kosher", "dairy", "vegetable|soup"),
-    ("cassoulet white bean duck pork sausage slow casserole", "Toulouse White Bean Cassoulet", "French", "non-vegetarian", "none", "legume|main"),
-    ("croque monsieur toasted ham gruyere bechamel bread", "Croque Monsieur Sandwich", "French", "non-vegetarian", "gluten|dairy", "grain|main"),
-    ("salade lyonnaise frisee greens bacon poached egg crouton", "Salade Lyonnaise Bowl", "French", "non-vegetarian", "eggs|gluten", "vegetable|salad"),
+    # ══════════════════════════════════════════════════════
+    # KOREAN
+    # ══════════════════════════════════════════════════════
+    ("bibimbap mixed rice bowl",      "Bibimbap",                "Korean",        "vegetarian",                                 "eggs|gluten",       "grain|main"),
+    ("bibimbap vegetables tofu",      "Veg Bibimbap",            "Korean",        "vegan|vegetarian|gluten-free",               "soy",               "grain|main"),
+    ("kimchi stew pork tofu",         "Kimchi Jjigae",           "Korean",        "non-vegetarian",                             "gluten|soy",        "protein|soup"),
+    ("doenjang soybean paste stew",   "Doenjang Jjigae",         "Korean",        "vegetarian",                                 "soy",               "protein|soup"),
+    ("sundubu jjigae soft tofu stew", "Sundubu Jjigae",          "Korean",        "vegetarian",                                 "soy|eggs",          "protein|soup"),
+    ("japchae glass noodles vegetables","Japchae",               "Korean",        "vegetarian|gluten-free",                     "eggs|soy",          "grain|main"),
+    ("bulgogi beef marinated",        "Bulgogi",                 "Korean",        "non-vegetarian",                             "gluten|soy",        "protein|main"),
+    ("samgyeopsal pork belly",        "Grilled Pork Belly",      "Korean",        "non-vegetarian",                             "gluten|soy",        "protein|main"),
+    ("dakgalbi spicy chicken",        "Dakgalbi",                "Korean",        "non-vegetarian|gluten-free",                 "soy",               "protein|main"),
+    ("mackerel grilled",              "Grilled Mackerel",        "Korean",        "pescatarian|non-vegetarian|gluten-free|halal","fish",             "seafood|main"),
+    ("tteokbokki rice cake spicy",    "Tteokbokki",              "Korean",        "vegan|vegetarian",                           "gluten|soy",        "grain|snack"),
+    ("haemul pajeon seafood pancake", "Seafood Pancake",         "Korean",        "pescatarian|non-vegetarian",                 "gluten|eggs|shellfish","seafood|main"),
+    ("gimbap seaweed rice roll",      "Gimbap",                  "Korean",        "pescatarian|non-vegetarian|gluten-free",     "eggs|soy|sesame",   "grain|main|snack"),
+    ("doenjang soup vegetable",       "Korean Veggie Soup",      "Korean",        "vegan|vegetarian",                           "soy",               "vegetable|soup"),
 
-    # --- GREEK (571 - 585) ---
-    ("chicken souvlaki skewers lemon breast charcoal", "Greek Chicken Souvlaki", "Greek", "non-vegetarian|gluten-free|halal", "dairy", "protein|main"),
-    ("lamb chops loin cut grilled garlic oregano", "Charcoal Lamb Chops", "Greek", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("fasolada white navy bean soup olive vegetable", "Greek Fasolada Soup", "Greek", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|soup"),
-    ("lemon chicken rice egg yolk orzo soup stock", "Avgolemono Soup", "Greek", "non-vegetarian|halal|kosher", "eggs|gluten", "protein|soup"),
-    ("dolmades stuffed grape vine leaves white rice herb", "Greek Dolmades Rice Packs", "Greek", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main|light"),
-    ("horiatiki rustic village salad feta block olive oil", "Village Salad Platter", "Greek", "vegetarian|gluten-free|halal|kosher", "dairy", "vegetable|salad"),
-    ("moussaka spiced ground beef eggplant layer bechamel", "Greek Style Moussaka", "Greek", "non-vegetarian|halal", "gluten|dairy|eggs", "protein|main"),
-    ("pastitsio tubular pasta layered beef meat tomato sauce cream", "Pastitsio Baked Pasta", "Greek", "non-vegetarian|halal", "gluten|dairy|eggs", "grain|main"),
-    ("spanakopita fillo dough leaves spinach cheese feta triangle", "Greek Spanakopita Pie", "Greek", "vegetarian|kosher", "gluten|dairy|eggs", "vegetable|main"),
-    ("tiropita fillo dough leaves cheese blend egg triangle", "Tiropita Feta Cheese Pie", "Greek", "vegetarian|kosher", "gluten|dairy|eggs", "dairy|main"),
-    ("gyros roasted sliced shaved lamb beef cone pita wrap", "Shaved Lamb Gyro Wrap", "Greek", "non-vegetarian|halal", "gluten|dairy", "protein|main"),
-    ("souvlaki pork tenderloin pieces skewered grilled lemon", "Pork Souvlaki Skewers", "Greek", "non-vegetarian", "none", "protein|main"),
-    ("baklava layered fillo walnuts almonds honey syrup crisp", "Sweet Greek Baklava", "Greek", "vegetarian|halal|kosher", "gluten|tree nuts", "grain|dessert"),
-    ("galaktoboureko semolina custard filling baked fillo crust", "Galaktoboureko Custard Cake", "Greek", "vegetarian|halal|kosher", "gluten|dairy|eggs", "grain|dessert"),
-    ("tzatziki genuine greek strained yogurt garlic cucumber mint", "Strained Tzatziki Dip", "Greek", "vegetarian|gluten-free|kosher", "dairy", "dairy|side"),
+    # ══════════════════════════════════════════════════════
+    # THAI
+    # ══════════════════════════════════════════════════════
+    ("pad thai rice noodles",         "Pad Thai",                "Thai",          "non-vegetarian",                             "gluten|eggs|peanuts|shellfish","grain|main"),
+    ("pad thai tofu vegetarian",      "Veg Pad Thai",            "Thai",          "vegetarian",                                 "gluten|eggs|peanuts|soy","grain|main"),
+    ("green curry chicken coconut",   "Green Curry Chicken",     "Thai",          "non-vegetarian|gluten-free|halal",           "shellfish",         "protein|main"),
+    ("green curry tofu vegetable",    "Veg Green Curry",         "Thai",          "vegan|vegetarian|gluten-free|halal",         "soy",               "protein|main"),
+    ("red curry shrimp",              "Red Curry Shrimp",        "Thai",          "pescatarian|non-vegetarian|gluten-free|halal","shellfish",        "seafood|main"),
+    ("massaman curry beef potato",    "Massaman Curry",          "Thai",          "non-vegetarian|gluten-free|halal",           "peanuts",           "protein|main"),
+    ("tom yum soup shrimp",           "Tom Yum Soup",            "Thai",          "pescatarian|non-vegetarian|gluten-free|halal","shellfish",        "seafood|soup"),
+    ("tom kha coconut soup chicken",  "Tom Kha Gai",             "Thai",          "non-vegetarian|gluten-free|halal",           "none",              "protein|soup"),
+    ("som tam papaya salad",          "Som Tam Salad",           "Thai",          "vegan|vegetarian|gluten-free|halal",         "peanuts",           "vegetable|salad"),
+    ("mango sticky rice dessert",     "Mango Sticky Rice",       "Thai",          "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|dessert"),
+    ("larb salad minced chicken",     "Chicken Larb",            "Thai",          "non-vegetarian|gluten-free|halal",           "none",              "protein|salad"),
+    ("basil chicken stir fry",        "Basil Chicken",           "Thai",          "non-vegetarian|gluten-free|halal",           "soy",               "protein|main"),
+    ("pad see ew noodles broccoli",   "Pad See Ew",              "Thai",          "non-vegetarian",                             "gluten|eggs|soy",   "grain|main"),
+    ("satay chicken peanut sauce",    "Chicken Satay",           "Thai",          "non-vegetarian|gluten-free|halal",           "peanuts",           "protein|snack"),
+    ("spring roll fresh rice paper",  "Fresh Spring Rolls",      "Thai",          "vegan|vegetarian|gluten-free",               "peanuts",           "vegetable|light|snack"),
 
-    # --- AFRICAN / ETHIOPIAN (586 - 605) ---
-    ("injera teff flour naturally fermented flatbread crumpet", "Injera Flatbread", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main"),
-    ("misir wat split red lentil berbere spice stew cooked", "Misir Wat Lentil Stew", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("shiro wat ground chickpea flour split pea stew smooth", "Shiro Wat Smooth Chickpea", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("tibs pan seared beef cubes strips jalapeno onion oil", "Beef Tibs Saute", "Ethiopian", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("jollof rice long grain cooked tomato parboiled west", "West African Jollof Rice", "African", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main"),
-    ("egusi melon seed ground soup spinach crayfish fish dried", "Nigerian Egusi Soup", "African", "non-vegetarian|gluten-free|halal", "fish", "protein|soup"),
-    ("suya beef flank strip skewers peanut paste rub grilled", "Suya Spicy Beef Skewers", "African", "non-vegetarian|gluten-free|halal", "peanuts", "protein|snack"),
-    ("tagine chicken breast bone-in green olive preserved lemon morocco", "Moroccan Chicken Tagine", "African", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("tagine mixed root vegetables zucchini sweet potato prune morocco", "Moroccan Vegetable Tagine", "African", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|main"),
-    ("harira soup brown lentil chickpeas meat lamb tomato stock", "Maghrebi Harira Soup", "African", "non-vegetarian|gluten-free|halal", "none", "legume|soup"),
-    ("kik alicha split yellow pea mild turmeric garlic onion stew", "Kik Alicha Yellow Pea Stew", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "legume|main"),
-    ("gomen wat chopped collard greens steamed garlic ginger oil", "Gomen Wat Collard Greens", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("key wat beef tender cubes chunk berbere spicy rich stew", "Key Wat Spicy Beef Stew", "Ethiopian", "non-vegetarian|gluten-free|halal", "none", "protein|main"),
-    ("doro wat whole chicken legs boiled egg berbere traditional stew", "Doro Wat Festive Chicken Stew", "Ethiopian", "non-vegetarian|gluten-free|halal", "eggs", "protein|main"),
-    ("atakilt wat shredded cabbage potato carrot turmeric ginger stirfry", "Atakilt Wat Vegetable Medley", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("timatim salata diced tomato onion jalapeno lemon olive dressing", "Timatim Tomato Salad", "Ethiopian", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|salad"),
-    ("fufu mashed cassava green plantain dough smooth ball white", "Ghanaian Cassava Fufu Ball", "African", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("ugali white cornmeal boiled flour stiff porridge lump staple", "East African Ugali Mash", "African", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|side"),
-    ("suya chicken breast strips skewered peanut spice blend barbecue", "Spicy Chicken Suya", "African", "non-vegetarian|gluten-free|halal", "peanuts", "protein|snack"),
-    ("puff puff sweet yeast fried wheat dough balls nigerian chew", "Nigerian Puff Puff Balls", "African", "vegan|vegetarian|halal|kosher", "gluten", "grain|snack"),
+    # ══════════════════════════════════════════════════════
+    # MEXICAN
+    # ══════════════════════════════════════════════════════
+    ("black beans rice burrito",      "Burrito Bowl",            "Mexican",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("chicken burrito",               "Chicken Burrito",         "Mexican",       "non-vegetarian|halal",                       "gluten|dairy",      "protein|main"),
+    ("fish tacos tilapia",            "Fish Tacos",              "Mexican",       "pescatarian|non-vegetarian|halal",           "fish|gluten|dairy", "seafood|main"),
+    ("veggie fajitas peppers onion",  "Veggie Fajitas",          "Mexican",       "vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|main"),
+    ("chicken fajitas",               "Chicken Fajitas",         "Mexican",       "non-vegetarian|halal",                       "gluten",            "protein|main"),
+    ("guacamole avocado",             "Guacamole",               "Mexican",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|snack"),
+    ("pico de gallo salsa tomato",    "Pico de Gallo",           "Mexican",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|snack|side"),
+    ("enchiladas cheese bean",        "Bean & Cheese Enchiladas","Mexican",       "vegetarian|halal|kosher",                    "gluten|dairy",      "legume|main"),
+    ("taco al pastor pork",           "Al Pastor Tacos",         "Mexican",       "non-vegetarian|halal",                       "gluten",            "protein|main"),
+    ("pozole hominy soup",            "Pozole",                  "Mexican",       "non-vegetarian|gluten-free|halal",           "none",              "grain|soup"),
+    ("elote corn on cob",             "Elote",                   "Mexican",       "vegetarian|gluten-free|halal|kosher",        "dairy",             "vegetable|snack"),
+    ("lentil taco",                   "Lentil Tacos",            "Mexican",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("tortilla soup chicken",         "Tortilla Soup",           "Mexican",       "non-vegetarian|halal",                       "gluten",            "protein|soup"),
+    ("chile relleno stuffed pepper",  "Chile Relleno",           "Mexican",       "vegetarian|halal|kosher",                    "eggs|dairy",        "vegetable|main"),
 
-    # --- LATIN AMERICAN (606 - 620) ---
-    ("arepa white corn meal dough cake split stuffed cheese pan", "Stuffed Corn Arepa", "Latin American", "vegetarian|gluten-free|halal|kosher", "dairy", "grain|main|breakfast"),
-    ("empanada pastry dough baked minced chicken egg stuffing crescent", "Baked Chicken Empanada", "Latin American", "non-vegetarian|halal", "gluten|eggs", "protein|snack"),
-    ("feijoada black bean stew smoked pork beef sausages authentic brazilian", "Brazilian Feijoada Stew", "Latin American", "non-vegetarian", "none", "legume|main"),
-    ("ceviche white fish sea bass fillet lime cured onion sweetpotato peru", "Peruvian Fish Ceviche", "Latin American", "pescatarian|non-vegetarian|gluten-free|halal|kosher", "fish", "seafood|light"),
-    ("roba vieja shredded flank beef steak flank tomato pepper cuba tomato", "Cuban Ropa Vieja Beef", "Latin American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("gallo pinto black beans white rice red bell pepper saute costa", "Gallo Pinto Rice & Beans", "Latin American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "grain|main"),
-    ("pabellon criollo shredded beef black beans rice plantain venezuela", "Pabellon Criollo Platter", "Latin American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("mofongo fried green plantain mash garlic pork cracklings puerto rico", "Puerto Rican Mofongo Ball", "Latin American", "non-vegetarian|gluten-free", "none", "grain|main"),
-    ("churasco grilled skirt beef steak garlic chimichurri herb sauce argentina", "Churrasco Steak & Chimichurri", "Latin American", "non-vegetarian|gluten-free|halal|kosher", "none", "protein|main"),
-    ("tostones twice fried green plantain slices crispy salted flat caribbean", "Crispy Fried Tostones Side", "Latin American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("maduros sweet ripe plantain slices pan fried soft caramelized brown", "Sweet Fried Maduros Slices", "Latin American", "vegan|vegetarian|gluten-free|halal|kosher", "none", "vegetable|side"),
-    ("pupusa thick corn cornmeal handmade tortilla stuffed beans chicharron el", "Salvadoran Pupusa Platter", "Latin American", "vegetarian|gluten-free|halal|kosher", "dairy", "grain|main"),
-    ("coxinha shredded chicken croquette battered cream cheese drop shape brazil", "Brazilian Coxinha Croquette", "Latin American", "non-vegetarian|halal", "gluten|dairy", "protein|snack"),
-    ("pastel de choclo sweet corn mash beef chicken layered casserole chile", "Chilean Corn Pastry Pie", "Latin American", "non-vegetarian", "eggs|dairy", "grain|main"),
-    ("alfajores shortbread cookies sandwich creamy dulce de leche starch sweet", "Dulce de Leche Alfajores", "Latin American", "vegetarian|halal|kosher", "gluten|dairy", "grain|dessert"),
+    # ══════════════════════════════════════════════════════
+    # FRENCH
+    # ══════════════════════════════════════════════════════
+    ("ratatouille vegetable stew",    "Ratatouille",             "French",        "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("nicoise salad tuna egg",        "Salade Niçoise",          "French",        "pescatarian|non-vegetarian|gluten-free",     "fish|eggs",         "seafood|salad"),
+    ("soupe a loignon onion soup",    "French Onion Soup",       "French",        "vegetarian|halal|kosher",                    "gluten|dairy",      "vegetable|soup"),
+    ("quiche lorraine egg cream",     "Quiche Lorraine",         "French",        "vegetarian|kosher",                          "gluten|eggs|dairy", "protein|main|breakfast"),
+    ("crepe buckwheat galette",       "Buckwheat Galette",       "French",        "vegetarian|gluten-free|kosher",              "eggs|dairy",        "grain|breakfast"),
+    ("bouillabaisse seafood stew",    "Bouillabaisse",           "French",        "pescatarian|non-vegetarian|gluten-free|halal","fish|shellfish",   "seafood|soup"),
+    ("coq au vin chicken wine",       "Coq au Vin",              "French",        "non-vegetarian|halal|kosher",                "none",              "protein|main"),
+    ("vichyssoise potato leek soup",  "Vichyssoise",             "French",        "vegetarian|gluten-free|kosher",              "dairy",             "vegetable|soup"),
+    ("salade lyonnaise bacon egg",    "Salade Lyonnaise",        "French",        "non-vegetarian",                             "eggs",              "protein|salad"),
+
+    # ══════════════════════════════════════════════════════
+    # MIDDLE EASTERN
+    # ══════════════════════════════════════════════════════
+    ("lentil rice mujaddara",         "Mujaddara",               "Middle Eastern","vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("stuffed bell pepper rice",      "Stuffed Bell Peppers",    "Middle Eastern","vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("shawarma chicken wrap",         "Chicken Shawarma",        "Middle Eastern","non-vegetarian|halal",                       "gluten|dairy",      "protein|main"),
+    ("lamb kofta grilled",            "Lamb Kofta",              "Middle Eastern","non-vegetarian|gluten-free|halal",           "none",              "protein|main"),
+    ("ful medames fava bean",         "Ful Medames",             "Middle Eastern","vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|breakfast|main"),
+    ("fatayer spinach pie",           "Spinach Fatayer",         "Middle Eastern","vegan|vegetarian|halal|kosher",              "gluten",            "vegetable|snack"),
+    ("kibbeh bulgur lamb",            "Kibbeh",                  "Middle Eastern","non-vegetarian|halal",                       "gluten",            "protein|main"),
+    ("mansaf lamb yogurt rice",       "Mansaf",                  "Middle Eastern","non-vegetarian|gluten-free|halal",           "dairy",             "protein|main"),
+    ("roasted cauliflower tahini",    "Roasted Cauliflower",     "Middle Eastern","vegan|vegetarian|gluten-free|halal|kosher",  "sesame",            "vegetable|side"),
+    ("dukkah nut seed spice blend",   "Dukkah Eggs",             "Middle Eastern","vegetarian|gluten-free|kosher",              "eggs|tree nuts|sesame","protein|breakfast"),
+
+    # ══════════════════════════════════════════════════════
+    # GREEK
+    # ══════════════════════════════════════════════════════
+    ("chicken souvlaki skewer",       "Chicken Souvlaki",        "Greek",         "non-vegetarian|gluten-free|halal",           "dairy",             "protein|main"),
+    ("lamb chops grilled",            "Lamb Chops",              "Greek",         "non-vegetarian|gluten-free|halal",           "none",              "protein|main"),
+    ("fasolada white bean soup",      "Fasolada",                "Greek",         "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|soup"),
+    ("lemon chicken orzo soup",       "Avgolemono",              "Greek",         "non-vegetarian|halal|kosher",                "eggs|gluten",       "protein|soup"),
+    ("dolmades stuffed vine leaves",  "Dolmades",                "Greek",         "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|main|light"),
+    ("horiatiki village salad",       "Village Salad",           "Greek",         "vegetarian|gluten-free|halal|kosher",        "dairy",             "vegetable|salad"),
+
+    # ══════════════════════════════════════════════════════
+    # AFRICAN / ETHIOPIAN
+    # ══════════════════════════════════════════════════════
+    ("injera teff flatbread",         "Injera with Lentil",      "Ethiopian",     "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|main"),
+    ("misir wat lentil stew",         "Misir Wat",               "Ethiopian",     "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("shiro chickpea stew",           "Shiro Wat",               "Ethiopian",     "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|main"),
+    ("tibs sauteed beef vegetables",  "Tibs",                    "Ethiopian",     "non-vegetarian|gluten-free|halal",           "none",              "protein|main"),
+    ("jollof rice tomato west africa","Jollof Rice",             "African",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|main"),
+    ("egusi melon seed soup",         "Egusi Soup",              "African",       "non-vegetarian|gluten-free|halal",           "none",              "protein|soup"),
+    ("suya beef skewer spiced",       "Suya",                    "African",       "non-vegetarian|gluten-free|halal",           "peanuts",           "protein|snack"),
+    ("tagine chicken moroccan",       "Chicken Tagine",          "African",       "non-vegetarian|gluten-free|halal",           "none",              "protein|main"),
+    ("tagine vegetable moroccan",     "Vegetable Tagine",        "African",       "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|main"),
+    ("harira soup lentil lamb",       "Harira Soup",             "African",       "non-vegetarian|gluten-free|halal",           "none",              "legume|soup"),
+
+    # ══════════════════════════════════════════════════════
+    # LATIN AMERICAN
+    # ══════════════════════════════════════════════════════
+    ("arepa corn cake stuffed",       "Arepa",                   "Latin American","vegetarian|gluten-free|halal|kosher",        "dairy",             "grain|main|breakfast"),
+    ("empanada baked chicken",        "Empanada",                "Latin American","non-vegetarian|halal",                       "gluten|eggs",       "protein|snack"),
+    ("feijoada black bean stew",      "Feijoada",                "Latin American","non-vegetarian|gluten-free|halal",           "none",              "legume|main"),
+    ("ceviche shrimp lime",           "Ceviche",                 "Latin American","pescatarian|non-vegetarian|gluten-free|halal","shellfish",        "seafood|main|light"),
+    ("lomo saltado peru beef",        "Lomo Saltado",            "Latin American","non-vegetarian|halal",                       "gluten|soy",        "protein|main"),
+    ("arroz con pollo rice chicken",  "Arroz con Pollo",         "Latin American","non-vegetarian|gluten-free|halal",           "none",              "grain|main"),
+    ("black bean soup cuban",         "Cuban Black Bean Soup",   "Latin American","vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|soup"),
+    ("tamales corn masa",             "Tamales",                 "Latin American","non-vegetarian|gluten-free|halal",           "none",              "grain|main"),
+    ("quinoa salad peruvian",         "Quinoa Ensalada",         "Latin American","vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|salad"),
+
+    # ══════════════════════════════════════════════════════
+    # SNACKS / SIDES / LIGHT
+    # ══════════════════════════════════════════════════════
+    ("apple slices almond butter",    "Apple & Almond Butter",   "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "tree nuts",         "fruit|snack"),
+    ("mixed berries yogurt",          "Berry Yogurt Bowl",       "American",      "vegetarian|gluten-free|kosher",              "dairy",             "fruit|snack|breakfast"),
+    ("celery sticks hummus",          "Celery & Hummus",         "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "sesame",            "vegetable|snack"),
+    ("boiled eggs",                   "Hard Boiled Eggs",        "American",      "vegetarian|gluten-free|halal|kosher",        "eggs",              "protein|snack"),
+    ("mixed nuts",                    "Mixed Nuts",              "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "tree nuts",         "protein|snack"),
+    ("kale chips baked",              "Kale Chips",              "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|snack"),
+    ("roasted chickpeas spiced",      "Roasted Chickpeas",       "Mediterranean", "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "legume|snack"),
+    ("rice cakes with avocado",       "Rice Cakes & Avocado",    "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "grain|snack|light"),
+    ("steamed broccoli lemon",        "Steamed Broccoli",        "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|side"),
+    ("roasted sweet potato wedges",   "Sweet Potato Wedges",     "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|side"),
+    ("cucumber tomato salad",         "Cucumber Tomato Salad",   "American",      "vegan|vegetarian|gluten-free|halal|kosher",  "none",              "vegetable|salad|light"),
+    ("watermelon feta mint salad",    "Watermelon Salad",        "Mediterranean", "vegetarian|gluten-free|halal|kosher",        "dairy",             "fruit|salad|light"),
+    ("mango lassi yogurt",            "Mango Lassi",             "Indian",        "vegetarian|gluten-free|halal|kosher",        "dairy",             "dairy|snack|light"),
+    ("golden milk turmeric",          "Turmeric Golden Milk",    "Indian",        "vegetarian|gluten-free|halal|kosher",        "dairy",             "dairy|snack|light"),
+    ("protein shake whey",            "Protein Shake",           "American",      "vegetarian|gluten-free|halal|kosher",        "dairy",             "dairy|snack|breakfast"),
+
 ]
 
+# ─────────────────────────────────────────────────────────────────────────────
 NUTRIENT_IDS = {
-    "Energy": "calories",
-    "Protein": "protein_g",
-    "Total lipid (fat)": "fat_g",
-    "Carbohydrate, by difference": "carbs_g",
-    "Fiber, total dietary": "fiber_g",
-    "Iron, Fe": "iron_mg",
-    "Calcium, Ca": "calcium_mg",
-    "Vitamin B-12": "vitamin_b12_ug",
-    "Vitamin D (D2 + D3)": "vitamin_d_iu",
-    "Zinc, Zn": "zinc_mg",
-    "Potassium, K": "potassium_mg",
-    "Magnesium, Mg": "magnesium_mg",
-    "Sodium, Na": "sodium_mg",
+    "Energy":                       "calories",
+    "Protein":                      "protein_g",
+    "Total lipid (fat)":            "fat_g",
+    "Carbohydrate, by difference":  "carbs_g",
+    "Fiber, total dietary":         "fiber_g",
+    "Iron, Fe":                     "iron_mg",
+    "Calcium, Ca":                  "calcium_mg",
+    "Vitamin B-12":                 "vitamin_b12_ug",
+    "Vitamin D (D2 + D3)":          "vitamin_d_iu",
+    "Zinc, Zn":                     "zinc_mg",
+    "Potassium, K":                 "potassium_mg",
+    "Magnesium, Mg":                "magnesium_mg",
+    "Sodium, Na":                   "sodium_mg",
 }
 
+# Realistic nutrient defaults by category (used when USDA returns nothing)
 CATEGORY_DEFAULTS = {
-    "grain": dict(calories=320, protein_g=8, fat_g=4, carbs_g=62, fiber_g=5, iron_mg=2.0, calcium_mg=30, vitamin_b12_ug=0.1, vitamin_d_iu=0, zinc_mg=1.5, potassium_mg=200, magnesium_mg=40, sodium_mg=180),
-    "legume": dict(calories=250, protein_g=15, fat_g=3, carbs_g=40, fiber_g=10, iron_mg=4.0, calcium_mg=60, vitamin_b12_ug=0.0, vitamin_d_iu=0, zinc_mg=2.5, potassium_mg=500, magnesium_mg=70, sodium_mg=200),
-    "protein": dict(calories=280, protein_g=28, fat_g=12, carbs_g=0, fiber_g=0, iron_mg=3.0, calcium_mg=20, vitamin_b12_ug=2.0, vitamin_d_iu=40, zinc_mg=4.5, potassium_mg=350, magnesium_mg=30, sodium_mg=240),
-    "seafood": dict(calories=180, protein_g=24, fat_g=6, carbs_g=0, fiber_g=0, iron_mg=1.2, calcium_mg=40, vitamin_b12_ug=4.0, vitamin_d_iu=200, zinc_mg=1.0, potassium_mg=400, magnesium_mg=35, sodium_mg=300),
-    "vegetable": dict(calories=65, protein_g=3, fat_g=1, carbs_g=12, fiber_g=4, iron_mg=1.5, calcium_mg=50, vitamin_b12_ug=0.0, vitamin_d_iu=0, zinc_mg=0.6, potassium_mg=320, magnesium_mg=25, sodium_mg=90),
-    "salad": dict(calories=120, protein_g=4, fat_g=8, carbs_g=10, fiber_g=3, iron_mg=1.2, calcium_mg=60, vitamin_b12_ug=0.2, vitamin_d_iu=0, zinc_mg=0.8, potassium_mg=280, magnesium_mg=22, sodium_mg=150),
-    "soup": dict(calories=160, protein_g=9, fat_g=5, carbs_g=18, fiber_g=4, iron_mg=1.8, calcium_mg=40, vitamin_b12_ug=0.5, vitamin_d_iu=10, zinc_mg=1.2, potassium_mg=340, magnesium_mg=28, sodium_mg=420),
-    "snack": dict(calories=190, protein_g=5, fat_g=7, carbs_g=24, fiber_g=3, iron_mg=1.1, calcium_mg=35, vitamin_b12_ug=0.1, vitamin_d_iu=0, zinc_mg=0.9, potassium_mg=220, magnesium_mg=30, sodium_mg=210),
-    "dairy": dict(calories=150, protein_g=10, fat_g=6, carbs_g=12, fiber_g=0, iron_mg=0.1, calcium_mg=300, vitamin_b12_ug=0.8, vitamin_d_iu=60, zinc_mg=1.1, potassium_mg=210, magnesium_mg=15, sodium_mg=120),
-    "fruit": dict(calories=90, protein_g=1, fat_g=0.5, carbs_g=22, fiber_g=3.5, iron_mg=0.4, calcium_mg=15, vitamin_b12_ug=0.0, vitamin_d_iu=0, zinc_mg=0.2, potassium_mg=260, magnesium_mg=12, sodium_mg=5),
-    "tree nuts": dict(calories=210, protein_g=6, fat_g=18, carbs_g=7, fiber_g=3, iron_mg=1.2, calcium_mg=75, vitamin_b12_ug=0.0, vitamin_d_iu=0, zinc_mg=1.3, potassium_mg=230, magnesium_mg=65, sodium_mg=10),
-    "peanuts": dict(calories=200, protein_g=8, fat_g=16, carbs_g=6, fiber_g=2.5, iron_mg=1.0, calcium_mg=25, vitamin_b12_ug=0.0, vitamin_d_iu=0, zinc_mg=1.2, potassium_mg=200, magnesium_mg=50, sodium_mg=15),
-    "dessert": dict(calories=260, protein_g=4, fat_g=10, carbs_g=38, fiber_g=1.5, iron_mg=0.8, calcium_mg=45, vitamin_b12_ug=0.2, vitamin_d_iu=10, zinc_mg=0.5, potassium_mg=140, magnesium_mg=18, sodium_mg=190),
-    "main": dict(calories=350, protein_g=22, fat_g=14, carbs_g=30, fiber_g=4, iron_mg=2.5, calcium_mg=45, vitamin_b12_ug=1.5, vitamin_d_iu=20, zinc_mg=2.5, potassium_mg=380, magnesium_mg=35, sodium_mg=380)
+    "grain":     dict(calories=320, protein_g=8,  fat_g=4,  carbs_g=62, fiber_g=5,  iron_mg=2.0, calcium_mg=30,  vitamin_b12_ug=0.1, vitamin_d_iu=0,  zinc_mg=1.5, potassium_mg=200, magnesium_mg=40, sodium_mg=180),
+    "legume":    dict(calories=250, protein_g=15, fat_g=3,  carbs_g=40, fiber_g=10, iron_mg=4.0, calcium_mg=60,  vitamin_b12_ug=0.0, vitamin_d_iu=0,  zinc_mg=2.5, potassium_mg=500, magnesium_mg=70, sodium_mg=200),
+    "protein":   dict(calories=280, protein_g=30, fat_g=10, carbs_g=8,  fiber_g=1,  iron_mg=2.5, calcium_mg=40,  vitamin_b12_ug=1.5, vitamin_d_iu=20, zinc_mg=4.0, potassium_mg=400, magnesium_mg=35, sodium_mg=250),
+    "seafood":   dict(calories=240, protein_g=28, fat_g=8,  carbs_g=4,  fiber_g=0,  iron_mg=1.5, calcium_mg=50,  vitamin_b12_ug=3.0, vitamin_d_iu=80, zinc_mg=2.0, potassium_mg=450, magnesium_mg=40, sodium_mg=300),
+    "vegetable": dict(calories=180, protein_g=6,  fat_g=5,  carbs_g=28, fiber_g=6,  iron_mg=2.0, calcium_mg=80,  vitamin_b12_ug=0.0, vitamin_d_iu=0,  zinc_mg=1.0, potassium_mg=600, magnesium_mg=50, sodium_mg=150),
+    "salad":     dict(calories=200, protein_g=8,  fat_g=10, carbs_g=20, fiber_g=5,  iron_mg=2.0, calcium_mg=100, vitamin_b12_ug=0.2, vitamin_d_iu=0,  zinc_mg=1.2, potassium_mg=500, magnesium_mg=45, sodium_mg=200),
+    "soup":      dict(calories=200, protein_g=10, fat_g=5,  carbs_g=28, fiber_g=4,  iron_mg=2.5, calcium_mg=60,  vitamin_b12_ug=0.3, vitamin_d_iu=0,  zinc_mg=1.5, potassium_mg=450, magnesium_mg=35, sodium_mg=400),
+    "dairy":     dict(calories=200, protein_g=12, fat_g=6,  carbs_g=24, fiber_g=0,  iron_mg=0.2, calcium_mg=250, vitamin_b12_ug=1.2, vitamin_d_iu=50, zinc_mg=1.5, potassium_mg=350, magnesium_mg=30, sodium_mg=120),
+    "fruit":     dict(calories=180, protein_g=3,  fat_g=2,  carbs_g=38, fiber_g=5,  iron_mg=0.5, calcium_mg=30,  vitamin_b12_ug=0.0, vitamin_d_iu=0,  zinc_mg=0.5, potassium_mg=400, magnesium_mg=25, sodium_mg=20),
+    "snack":     dict(calories=180, protein_g=6,  fat_g=8,  carbs_g=22, fiber_g=3,  iron_mg=1.0, calcium_mg=50,  vitamin_b12_ug=0.1, vitamin_d_iu=0,  zinc_mg=1.0, potassium_mg=200, magnesium_mg=25, sodium_mg=150),
+    "light":     dict(calories=150, protein_g=6,  fat_g=4,  carbs_g=20, fiber_g=3,  iron_mg=1.0, calcium_mg=60,  vitamin_b12_ug=0.1, vitamin_d_iu=0,  zinc_mg=0.8, potassium_mg=300, magnesium_mg=30, sodium_mg=180),
+    "breakfast": dict(calories=300, protein_g=12, fat_g=8,  carbs_g=42, fiber_g=4,  iron_mg=2.0, calcium_mg=120, vitamin_b12_ug=0.5, vitamin_d_iu=20, zinc_mg=1.5, potassium_mg=300, magnesium_mg=35, sodium_mg=220),
+    "main":      dict(calories=450, protein_g=22, fat_g=14, carbs_g=52, fiber_g=6,  iron_mg=3.0, calcium_mg=80,  vitamin_b12_ug=0.8, vitamin_d_iu=15, zinc_mg=3.0, potassium_mg=500, magnesium_mg=55, sodium_mg=450),
+    "side":      dict(calories=150, protein_g=4,  fat_g=4,  carbs_g=24, fiber_g=4,  iron_mg=1.2, calcium_mg=50,  vitamin_b12_ug=0.0, vitamin_d_iu=0,  zinc_mg=0.8, potassium_mg=350, magnesium_mg=35, sodium_mg=120),
+    "dessert":   dict(calories=280, protein_g=4,  fat_g=5,  carbs_g=55, fiber_g=2,  iron_mg=0.8, calcium_mg=40,  vitamin_b12_ug=0.1, vitamin_d_iu=0,  zinc_mg=0.5, potassium_mg=200, magnesium_mg=20, sodium_mg=50),
 }
+
+MONASH_HIGH = ["garlic","onion","wheat","rye","barley","legumes","chickpeas",
+               "lentils","kidney beans","cauliflower","mushroom","apple","pear",
+               "mango","milk","yogurt","custard","fructose","inulin"]
+GERD_LIST   = ["tomato","citrus","coffee","chocolate","spicy","fried",
+               "peppermint","alcohol","vinegar","garlic","onion"]
+
+# ── Bulk USDA catalog settings ───────────────────────────────────────────────
+TARGET_MIN   = 5000          # BAX-423 requirement: ≥5,000-item offline snapshot
+PAGE_SIZE    = 200           # USDA max page size for list/search
+REQUEST_GAP  = 0.15          # seconds between API calls (1,000 req/hour limit)
+BATCH_SIZE   = 20            # fdcIds per /foods batch detail request
+
+USDA_DATA_TYPES = ["Foundation", "SR Legacy", "Branded"]
+
+# Broad search terms — fills gaps if list pagination is slow to reach TARGET_MIN
+BULK_SEARCH_TERMS = [
+    "rice", "chicken", "beef", "pork", "fish", "salmon", "tuna", "shrimp",
+    "bean", "lentil", "chickpea", "tofu", "egg", "milk", "cheese", "yogurt",
+    "bread", "pasta", "oat", "quinoa", "potato", "sweet potato", "corn",
+    "apple", "banana", "orange", "berry", "grape", "mango", "avocado",
+    "broccoli", "spinach", "kale", "carrot", "tomato", "pepper", "onion",
+    "mushroom", "cauliflower", "cabbage", "lettuce", "cucumber", "zucchini",
+    "soup", "salad", "stew", "curry", "stir fry", "grilled", "baked", "roasted",
+    "sandwich", "burger", "pizza", "taco", "burrito", "wrap", "bowl", "smoothie",
+    "cereal", "granola", "muffin", "pancake", "waffle", "cookie", "cake",
+    "nuts", "almond", "peanut", "walnut", "seed", "hummus", "sauce", "oil",
+    "turkey", "lamb", "sausage", "bacon", "ham", "crab", "lobster", "cod",
+    "tilapia", "mackerel", "sardine", "tempeh", "edamame", "soy", "barley",
+    "wheat", "rye", "couscous", "bulgur", "millet", "barley", "pea", "spinach",
+    "asparagus", "beet", "squash", "pumpkin", "melon", "peach", "pear", "plum",
+    "cherry", "strawberry", "blueberry", "raspberry", "coconut", "honey",
+    "butter", "cream", "ice cream", "chocolate", "coffee", "tea", "juice",
+]
+
+MEAT_TERMS = [
+    "beef", "pork", "bacon", "ham", "sausage", "pepperoni", "salami", "prosciutto",
+    "chicken", "turkey", "duck", "lamb", "mutton", "veal", "venison", "bison",
+    "meat", "steak", "burger", "hot dog", "frankfurter", "chorizo",
+]
+FISH_TERMS = [
+    "fish", "salmon", "tuna", "cod", "tilapia", "mackerel", "sardine", "anchovy",
+    "trout", "bass", "halibut", "haddock", "catfish", "shrimp", "prawn", "crab",
+    "lobster", "scallop", "oyster", "clam", "mussel", "squid", "octopus", "seafood",
+]
+PORK_TERMS = ["pork", "bacon", "ham", "sausage", "pepperoni", "salami", "prosciutto", "chorizo", "lard"]
+
+CUISINE_KEYWORDS = {
+    "Indian":        ["curry", "dal", "masala", "tikka", "biryani", "naan", "chutney", "paneer", "sambar", "dosa", "idli"],
+    "Japanese":      ["sushi", "miso", "ramen", "udon", "soba", "teriyaki", "edamame", "tempura", "onigiri", "gyoza"],
+    "Chinese":       ["wonton", "dim sum", "kung pao", "mapo", "congee", "fried rice", "lo mein", "szechuan"],
+    "Korean":        ["kimchi", "bibimbap", "bulgogi", "gochujang", "japchae", "gimbap", "jjigae"],
+    "Thai":          ["pad thai", "tom yum", "tom kha", "satay", "massaman", "green curry", "red curry"],
+    "Mexican":       ["taco", "burrito", "enchilada", "quesadilla", "guacamole", "salsa", "tamale", "pozole", "fajita"],
+    "Italian":       ["pasta", "pizza", "risotto", "pesto", "marinara", "parmesan", "mozzarella", "bruschetta"],
+    "Mediterranean": ["hummus", "falafel", "tzatziki", "tabbouleh", "dolma", "fattoush", "shakshuka", "halloumi"],
+    "French":        ["ratatouille", "quiche", "bouillabaisse", "coq au vin", "crepe", "galette", "nicoise"],
+    "Middle Eastern":["shawarma", "kofta", "tahini", "ful medames", "kibbeh", "mansaf", "fatayer"],
+    "Greek":         ["souvlaki", "moussaka", "spanakopita", "gyro", "tzatziki", "feta", "dolmades"],
+    "Ethiopian":     ["injera", "wat", "berbere", "teff", "shiro"],
+    "African":       ["jollof", "egusi", "suya", "tagine", "harira", "couscous"],
+    "Latin American":["arepa", "empanada", "feijoada", "ceviche", "lomo saltado", "arroz con pollo"],
+}
+
+
+def extract_nutrients(food):
+    """Parse nutrients from USDA search, list, or detail responses."""
+    nutrients = {}
+    for n in food.get("foodNutrients", []):
+        nutrient = n.get("nutrient") or {}
+        name = (
+            n.get("nutrientName")
+            or n.get("name")
+            or nutrient.get("name")
+            or nutrient.get("nutrientName")
+            or ""
+        )
+        mapped = NUTRIENT_IDS.get(name)
+        if not mapped:
+            continue
+        raw = n.get("value")
+        if raw is None:
+            raw = n.get("amount")
+        if raw is None:
+            raw = n.get("quantity")
+        if raw is None:
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if val > 0:
+            nutrients[mapped] = round(val, 2)
+    return nutrients
+
 
 def fetch_food(query):
     url = f"{BASE_URL}/foods/search"
-    params = {"query": query, "api_key": API_KEY, "pageSize": 1, "dataType": "Foundation,SR Legacy"}
+    params = {"query": query, "api_key": API_KEY, "pageSize": 1,
+              "dataType": "Foundation,SR Legacy,Branded"}
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=15)
         if r.status_code != 200:
             return None
         data = r.json()
         foods = data.get("foods", [])
         if not foods:
             return None
-        
         food = foods[0]
-        nutrients = {}
-        for n in food.get("foodNutrients", []):
-            mapped = NUTRIENT_IDS.get(n.get("nutrientName", ""))
-            if mapped:
-                val = float(n.get("value", 0))
-                if val > 0:
-                    nutrients[mapped] = round(val, 2)
-                    
-        return {
-            "usda_fdcId": str(food.get("fdcId","")),
-            "usda_description": food.get("description", query),
-            **nutrients
-        }
+        nutrients = extract_nutrients(food)
+        return {"usda_fdcId": str(food.get("fdcId", "")),
+                "usda_description": food.get("description", query),
+                **nutrients}
     except Exception:
         return None
+
+
+def fetch_foods_list_page(page_number, data_types):
+    """Paginated /foods/list — Foundation, SR Legacy, Branded catalog."""
+    try:
+        r = requests.post(
+            f"{BASE_URL}/foods/list?api_key={API_KEY}",
+            json={
+                "pageSize": PAGE_SIZE,
+                "pageNumber": page_number,
+                "dataType": data_types,
+                "sortBy": "fdcId",
+                "sortOrder": "asc",
+            },
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def fetch_search_page(query, page_number):
+    """Paginated /foods/search for additional USDA items."""
+    try:
+        r = requests.post(
+            f"{BASE_URL}/foods/search?api_key={API_KEY}",
+            json={
+                "query": query,
+                "pageSize": PAGE_SIZE,
+                "pageNumber": page_number,
+                "dataType": USDA_DATA_TYPES,
+                "sortBy": "dataType.keyword",
+                "sortOrder": "asc",
+            },
+            timeout=30,
+        )
+        if r.status_code != 200:
+            return []
+        return r.json().get("foods", [])
+    except Exception:
+        return []
+
+
+def fetch_foods_batch_details(fdc_ids):
+    """Batch-fetch full nutrient profiles for items missing key fields."""
+    if not fdc_ids:
+        return {}
+    try:
+        r = requests.post(
+            f"{BASE_URL}/foods?api_key={API_KEY}",
+            json={"fdcIds": fdc_ids, "format": "full"},
+            timeout=45,
+        )
+        if r.status_code != 200:
+            return {}
+        out = {}
+        for food in r.json():
+            fdc = food.get("fdcId")
+            if fdc:
+                out[str(fdc)] = extract_nutrients(food)
+        return out
+    except Exception:
+        return {}
+
 
 def get_defaults(categories_str):
     cats = categories_str.split("|")
@@ -722,67 +573,350 @@ def get_defaults(categories_str):
             return dict(CATEGORY_DEFAULTS[cat])
     return dict(CATEGORY_DEFAULTS["main"])
 
+
+def _contains_any(text, terms):
+    return any(t in text for t in terms)
+
+
+def infer_allergens(text):
+    t = text.lower()
+    found = []
+    if _contains_any(t, ["wheat", "bread", "pasta", "flour", "barley", "rye", "gluten",
+                         "couscous", "noodle", "cracker", "bagel", "muffin", "cereal", "spelt"]):
+        found.append("gluten")
+    if _contains_any(t, ["milk", "cheese", "yogurt", "butter", "cream", "whey", "casein",
+                         "dairy", "lactose", "ghee", "paneer", "ricotta", "mozzarella"]):
+        found.append("dairy")
+    if _contains_any(t, ["egg", "eggs", "omelette", "mayonnaise", "meringue"]):
+        found.append("eggs")
+    if _contains_any(t, ["soy", "tofu", "edamame", "tempeh", "miso", "soybean", "soya"]):
+        found.append("soy")
+    if _contains_any(t, ["peanut", "peanuts", "groundnut"]):
+        found.append("peanuts")
+    if _contains_any(t, ["almond", "cashew", "walnut", "pecan", "pistachio", "hazelnut",
+                         "macadamia", "pine nut", "tree nut", "brazil nut"]):
+        found.append("tree nuts")
+    if _contains_any(t, ["shrimp", "prawn", "crab", "lobster", "scallop", "oyster",
+                         "clam", "mussel", "shellfish", "crayfish"]):
+        found.append("shellfish")
+    if _contains_any(t, ["salmon", "tuna", "cod", "fish", "anchovy", "sardine", "trout",
+                         "bass", "halibut", "tilapia", "mackerel", "haddock"]):
+        found.append("fish")
+    if _contains_any(t, ["sesame", "tahini"]):
+        found.append("sesame")
+    return "|".join(found) if found else "none"
+
+
+def infer_diet_tags(text, allergens):
+    t = text.lower()
+    allergen_set = set(allergens.split("|")) if allergens else set()
+    has_meat = _contains_any(t, MEAT_TERMS)
+    has_fish = _contains_any(t, FISH_TERMS) or "fish" in allergen_set or "shellfish" in allergen_set
+    has_pork = _contains_any(t, PORK_TERMS)
+    has_dairy = "dairy" in allergen_set
+    has_eggs  = "eggs" in allergen_set
+
+    tags = []
+    if not has_meat and not has_fish and not has_dairy and not has_eggs:
+        tags.extend(["vegan", "vegetarian"])
+    elif not has_meat and not has_fish:
+        tags.append("vegetarian")
+    if has_fish and not has_meat:
+        tags.append("pescatarian")
+    if has_meat:
+        tags.append("non-vegetarian")
+    if "gluten" not in allergen_set:
+        tags.append("gluten-free")
+    if not has_pork:
+        tags.append("halal")
+    if not has_pork and "shellfish" not in allergen_set:
+        tags.append("kosher")
+    return "|".join(dict.fromkeys(tags))  # preserve order, dedupe
+
+
+def infer_categories(text):
+    t = text.lower()
+    cats = []
+    rules = [
+        (["breakfast", "oatmeal", "cereal", "pancake", "waffle", "omelette", "granola"], "breakfast"),
+        (["soup", "broth", "stew", "chowder", "bisque", "jjigae", "ramen"], "soup"),
+        (["salad", "slaw"], "salad"),
+        (FISH_TERMS, "seafood"),
+        (MEAT_TERMS + ["protein", "steak", "breast", "thigh"], "protein"),
+        (["bean", "lentil", "chickpea", "legume", "dal", "hummus", "edamame", "pea"], "legume"),
+        (["rice", "bread", "pasta", "noodle", "oat", "quinoa", "grain", "cereal", "barley", "couscous"], "grain"),
+        (["milk", "cheese", "yogurt", "cream", "butter", "dairy"], "dairy"),
+        (["apple", "banana", "berry", "fruit", "orange", "mango", "grape", "melon"], "fruit"),
+        (["cookie", "cake", "dessert", "ice cream", "chocolate", "candy", "pie"], "dessert"),
+        (["snack", "chip", "cracker", "bar", "nuts"], "snack"),
+        (["broccoli", "spinach", "carrot", "vegetable", "kale", "pepper", "tomato", "onion"], "vegetable"),
+    ]
+    for keywords, cat in rules:
+        if _contains_any(t, keywords):
+            cats.append(cat)
+    if not cats:
+        cats.append("main")
+    if "side" not in cats and any(x in t for x in ["side", "accompaniment"]):
+        cats.append("side")
+    return "|".join(dict.fromkeys(cats))
+
+
+def infer_cuisine(text):
+    t = text.lower()
+    for cuisine, keywords in CUISINE_KEYWORDS.items():
+        if any(kw in t for kw in keywords):
+            return cuisine
+    return "American"
+
+
+def clean_display_name(description):
+    """Turn USDA description into a readable dish/food name."""
+    name = description.strip()
+    if not name:
+        return "USDA Food Item"
+    if name.isupper() and len(name) > 4:
+        name = name.title()
+    return name[:120]
+
+
+def fill_nutrients(usda, categories):
+    defaults = get_defaults(categories)
+    for k, v in defaults.items():
+        if k not in usda or usda.get(k, 0) == 0:
+            usda[k] = v
+    return usda, defaults
+
+
+def build_record(fid, name, cuisine, categories, diet_tags, allergens,
+                 usda, query_fallback=""):
+    name_lower = f"{name} {query_fallback}".lower()
+    is_fodmap = int(any(t in name_lower for t in MONASH_HIGH))
+    is_gerd   = int(any(t in name_lower for t in GERD_LIST))
+    defaults  = get_defaults(categories)
+    usda, _   = fill_nutrients(usda, categories)
+    is_hi_na  = int(usda.get("sodium_mg", 0) > 400)
+    allergen_l = allergens.lower()
+    return {
+        "food_id":          fid,
+        "name":             name,
+        "cuisine":          cuisine,
+        "categories":       categories,
+        "diet_tags":        diet_tags,
+        "safe_conditions":  "",
+        "allergens":        allergens,
+        "calories":         usda.get("calories", defaults["calories"]),
+        "protein_g":        usda.get("protein_g", defaults["protein_g"]),
+        "carbs_g":          usda.get("carbs_g", defaults["carbs_g"]),
+        "fat_g":            usda.get("fat_g", defaults["fat_g"]),
+        "fiber_g":          usda.get("fiber_g", defaults["fiber_g"]),
+        "iron_mg":          usda.get("iron_mg", defaults["iron_mg"]),
+        "calcium_mg":       usda.get("calcium_mg", defaults["calcium_mg"]),
+        "vitamin_b12_ug":   usda.get("vitamin_b12_ug", defaults["vitamin_b12_ug"]),
+        "vitamin_d_iu":     usda.get("vitamin_d_iu", defaults["vitamin_d_iu"]),
+        "zinc_mg":          usda.get("zinc_mg", defaults["zinc_mg"]),
+        "potassium_mg":     usda.get("potassium_mg", defaults["potassium_mg"]),
+        "magnesium_mg":     usda.get("magnesium_mg", defaults["magnesium_mg"]),
+        "sodium_mg":        usda.get("sodium_mg", defaults["sodium_mg"]),
+        "gi_score":         45,
+        "is_high_fodmap":   is_fodmap,
+        "is_gerd_trigger":  is_gerd,
+        "is_high_gi":       0,
+        "is_high_sodium":   is_hi_na,
+        "has_soy":          int("soy" in allergen_l),
+        "has_tree_nuts":    int("tree nuts" in allergen_l),
+        "usda_fdcId":       usda.get("usda_fdcId", ""),
+        "usda_description": usda.get("usda_description", name),
+    }
+
+
+def add_bulk_food(food, records, seen_fdc, seen_names, fid, pending_detail):
+    """Add one USDA catalog item; queue for batch detail fetch if nutrients sparse."""
+    fdc_id = food.get("fdcId")
+    if not fdc_id:
+        return fid, False
+    fdc_key = str(fdc_id)
+    if fdc_key in seen_fdc:
+        return fid, False
+
+    desc = (food.get("description") or "").strip()
+    if len(desc) < 3:
+        return fid, False
+
+    name_key = desc.lower()
+    if name_key in seen_names:
+        return fid, False
+
+    nutrients = extract_nutrients(food)
+    if nutrients.get("calories", 0) == 0:
+        pending_detail.append(fdc_id)
+
+    allergens  = infer_allergens(desc)
+    categories = infer_categories(desc)
+    diet_tags  = infer_diet_tags(desc, allergens)
+    cuisine    = infer_cuisine(desc)
+    display    = clean_display_name(desc)
+
+    usda = {
+        "usda_fdcId": fdc_key,
+        "usda_description": desc,
+        **nutrients,
+    }
+
+    records.append(build_record(
+        fid, display, cuisine, categories, diet_tags, allergens, usda, desc
+    ))
+    seen_fdc.add(fdc_key)
+    seen_names.add(name_key)
+    return fid + 1, True
+
+
+def apply_batch_details(records, detail_map):
+    """Back-fill nutrients from batch /foods detail responses."""
+    if not detail_map:
+        return
+    for rec in records:
+        fdc = str(rec.get("usda_fdcId", ""))
+        if not fdc or fdc not in detail_map:
+            continue
+        extra = detail_map[fdc]
+        if not extra:
+            continue
+        for k, v in extra.items():
+            if v and (rec.get(k, 0) == 0 or rec.get(k) is None):
+                rec[k] = v
+        defaults = get_defaults(rec["categories"])
+        for k, v in defaults.items():
+            if rec.get(k, 0) == 0:
+                rec[k] = v
+        rec["is_high_sodium"] = int(rec.get("sodium_mg", 0) > 400)
+
+
+def bulk_fetch_usda(records, seen_fdc, seen_names, fid):
+    """
+    Phase 2: Paginate USDA Foundation + SR Legacy + Branded until TARGET_MIN.
+    Phase 3: Supplement with broad search terms if still below target.
+    """
+    pending_detail = []
+
+    print(f"\n── Phase 2: Bulk USDA catalog (target ≥ {TARGET_MIN:,}) ──\n")
+    for data_type in USDA_DATA_TYPES:
+        if len(records) >= TARGET_MIN:
+            break
+        page = 1
+        empty_streak = 0
+        print(f"  Fetching {data_type}...", flush=True)
+        while len(records) < TARGET_MIN and empty_streak < 2:
+            foods = fetch_foods_list_page(page, [data_type])
+            if not foods:
+                empty_streak += 1
+                page += 1
+                time.sleep(REQUEST_GAP)
+                continue
+            empty_streak = 0
+            added = 0
+            for food in foods:
+                fid, ok = add_bulk_food(
+                    food, records, seen_fdc, seen_names, fid, pending_detail
+                )
+                if ok:
+                    added += 1
+            print(f"    page {page:>4}  +{added:>3} items  (total {len(records):,})", flush=True)
+            if len(foods) < PAGE_SIZE:
+                break
+            page += 1
+            time.sleep(REQUEST_GAP)
+
+    if len(records) < TARGET_MIN:
+        print(f"\n── Phase 3: Search supplement (still need {TARGET_MIN - len(records):,}) ──\n")
+        for term in BULK_SEARCH_TERMS:
+            if len(records) >= TARGET_MIN:
+                break
+            for page in range(1, 6):
+                if len(records) >= TARGET_MIN:
+                    break
+                foods = fetch_search_page(term, page)
+                if not foods:
+                    break
+                added = 0
+                for food in foods:
+                    fid, ok = add_bulk_food(
+                        food, records, seen_fdc, seen_names, fid, pending_detail
+                    )
+                    if ok:
+                        added += 1
+                if added:
+                    print(f"    '{term}' p{page}  +{added}  (total {len(records):,})", flush=True)
+                if len(foods) < PAGE_SIZE:
+                    break
+                time.sleep(REQUEST_GAP)
+
+    if pending_detail:
+        print(f"\n── Back-filling nutrients for {len(pending_detail):,} items via batch /foods ──")
+        unique_pending = list(dict.fromkeys(pending_detail))
+        for i in range(0, len(unique_pending), BATCH_SIZE):
+            batch = unique_pending[i:i + BATCH_SIZE]
+            detail_map = fetch_foods_batch_details(batch)
+            apply_batch_details(records, detail_map)
+            if (i // BATCH_SIZE) % 10 == 0:
+                print(f"    batch {i // BATCH_SIZE + 1}/{(len(unique_pending) - 1) // BATCH_SIZE + 1}", flush=True)
+            time.sleep(REQUEST_GAP)
+
+    return fid
+
+
 def main():
-    n_total = len(FOOD_QUERIES)
-    print(f"Starting verification pipeline on {n_total} strictly unique entities...")
-    
-    records = []
-    fid = 1001
-    
-    for idx, item in enumerate(FOOD_QUERIES):
-        query, display_name, cuisine, tags, allergens, categories = item
-        
-        print(f"[{idx+1}/{n_total}] Sourcing query: '{query}'")
+    n_curated = len(FOOD_QUERIES)
+    print(f"NutriAI — building ≥{TARGET_MIN:,}-item USDA food database")
+    print(f"  Phase 1: {n_curated} curated dishes")
+    print(f"  Phase 2: bulk Foundation + SR Legacy + Branded catalog\n")
+
+    records    = []
+    seen_fdc   = set()
+    seen_names = set()
+    fid        = 1
+
+    # ── Phase 1: Curated dishes (original FOOD_QUERIES) ──────────────────────
+    for i, (query, display_name, cuisine, diet_tags, allergens, categories) in enumerate(FOOD_QUERIES):
+        print(f"  [{i+1:>3}/{n_curated}] {display_name:<35} ", end="", flush=True)
         usda = fetch_food(query)
         defaults = get_defaults(categories)
-        
-        # Clinical Rule Mapping Evaluated dynamically against Monash/NIH/FDC
-        is_fodmap = 1 if any(f in query.lower() for f in ["garlic", "onion", "shallot", "wheat", "milk"]) else 0
-        is_gerd   = 1 if any(g in query.lower() for g in ["citrus", "tomato", "chili", "spicy", "pork", "coffee"]) else 0
-        is_hi_na  = 1 if any(s in query.lower() for s in ["sauce", "salted", "canned", "pickle", "salami", "prosciutto"]) else 0
-        
-        has_soy   = 1 if "soy" in allergens else 0
-        has_nuts  = 1 if "tree nuts" in allergens else 0
-        
-        records.append({
-            "food_id": fid,
-            "name": display_name,
-            "cuisine": cuisine,
-            "diet_tags": tags,
-            "allergens": allergens,
-            "categories": categories,
-            "calories": usda.get("calories", defaults["calories"]) if usda else defaults["calories"],
-            "protein_g": usda.get("protein_g", defaults["protein_g"]) if usda else defaults["protein_g"],
-            "fat_g": usda.get("fat_g", defaults["fat_g"]) if usda else defaults["fat_g"],
-            "carbs_g": usda.get("carbs_g", defaults["carbs_g"]) if usda else defaults["carbs_g"],
-            "fiber_g": usda.get("fiber_g", defaults["fiber_g"]) if usda else defaults["fiber_g"],
-            "iron_mg": usda.get("iron_mg", defaults["iron_mg"]) if usda else defaults["iron_mg"],
-            "calcium_mg": usda.get("calcium_mg", defaults["calcium_mg"]) if usda else defaults["calcium_mg"],
-            "vitamin_b12_ug": usda.get("vitamin_b12_ug", defaults["vitamin_b12_ug"]) if usda else defaults["vitamin_b12_ug"],
-            "vitamin_d_iu": usda.get("vitamin_d_iu", defaults["vitamin_d_iu"]) if usda else defaults["vitamin_d_iu"],
-            "zinc_mg": usda.get("zinc_mg", defaults["zinc_mg"]) if usda else defaults["zinc_mg"],
-            "potassium_mg": usda.get("potassium_mg", defaults["potassium_mg"]) if usda else defaults["potassium_mg"],
-            "magnesium_mg": usda.get("magnesium_mg", defaults["magnesium_mg"]) if usda else defaults["magnesium_mg"],
-            "sodium_mg": usda.get("sodium_mg", defaults["sodium_mg"]) if usda else defaults["sodium_mg"],
-            "gi_score": 45, 
-            "is_high_fodmap": is_fodmap,
-            "is_gerd_trigger": is_gerd,
-            "is_high_gi": 0,
-            "is_high_sodium": is_hi_na,
-            "has_soy": has_soy,
-            "has_tree_nuts": has_nuts,
-            "usda_fdcId": usda.get("usda_fdcId", "") if usda else "",
-            "usda_description": usda.get("usda_description", query) if usda else query,
-        })
+
+        if usda and usda.get("usda_fdcId"):
+            usda, _ = fill_nutrients(usda, categories)
+            seen_fdc.add(str(usda["usda_fdcId"]))
+            print(f"✅  {usda['calories']:.0f} kcal  [fdcId={usda['usda_fdcId']}]")
+        else:
+            usda = dict(defaults)
+            usda["usda_fdcId"] = ""
+            usda["usda_description"] = query
+            print(f"⚠️  defaults used ({defaults['calories']} kcal)")
+
+        seen_names.add(display_name.lower())
+        records.append(build_record(
+            fid, display_name, cuisine, categories, diet_tags, allergens, usda, query
+        ))
         fid += 1
-        time.sleep(0.12) # 30 requests/sec API rate throttle protection
-        
+        time.sleep(REQUEST_GAP)
+
+    # ── Phase 2+3: Bulk USDA until ≥ 5,000 ───────────────────────────────────
+    fid = bulk_fetch_usda(records, seen_fdc, seen_names, fid)
+
     df = pd.DataFrame(records)
-    out_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "food_database.csv")
-    df.to_csv(out_file, index=False)
-    print(f"\nSUCCESS: Unified database output cleanly compiled to {out_file}.")
-    print(f"Total verified distinct rows added: {len(df)}")
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "food_database.csv")
+    df.to_csv(out, index=False)
+
+    real_usda = (df["usda_fdcId"].astype(str).str.strip() != "").sum()
+    print(f"\n✅  Saved {len(df):,} foods to {out}")
+    print(f"    Curated dishes: {n_curated:,}")
+    print(f"    Bulk USDA catalog: {len(df) - n_curated:,}")
+    print(f"    Real USDA fdcIds: {real_usda:,}  |  Defaults-filled: {len(df) - real_usda:,}")
+    print(f"    Cuisines: {df['cuisine'].nunique()}  |  Data types: Foundation, SR Legacy, Branded")
+
+    if len(df) < TARGET_MIN:
+        print(f"\n⚠️  WARNING: Only {len(df):,} items — re-run script (API may have rate-limited).")
+    else:
+        print(f"\n🎉  Requirement met: {len(df):,} ≥ {TARGET_MIN:,} offline snapshot items.")
+
 
 if __name__ == "__main__":
     main()
-

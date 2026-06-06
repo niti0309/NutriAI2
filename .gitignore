@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# R
+.Rhistory
+.RData
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+
+# Streamlit secrets (never commit API keys here)
+.streamlit/secrets.toml
+
+# USDA fetch cache (regenerated locally)
+data/usda_cache.json
