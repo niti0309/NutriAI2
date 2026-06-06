@@ -359,7 +359,7 @@ def diversity_score(names):
 
 def generate_plan(df, conditions, allergens_set, diet, cuisines,
                   calorie_target, sex, age, custom_allergens,
-                  vectorizer, faiss_index, usda_api_key, nutrient_focus=None):
+                  vectorizer, faiss_index, usda_api_key, nutrient_focus=None, preferred_cuisines=None):
     t0 = time.time()
     exclusions = []
     excluded_ids = set()
@@ -384,6 +384,8 @@ def generate_plan(df, conditions, allergens_set, diet, cuisines,
 
     if len(candidates) < 21:
         return None, exclusions, 0
+    # ── Adaptive scoring — cuisine preference scorer ──────────────────
+    pref_scorer = CuisinePreferenceScorer(preferred_cuisines or cuisines or [])
 
     # ── Step 3: FAISS embedding retrieval per slot ──────────────────────
     slot_pools = {}
@@ -426,7 +428,8 @@ def generate_plan(df, conditions, allergens_set, diet, cuisines,
             source['_cal_diff'] = (source['calories'] - calorie_target * cal_split[slot]).abs()
             max_diff = source['_cal_diff'].max() or 1
             source['_score'] = 1 - (source['_cal_diff'] / max_diff)
-            # Nutrient focus boost: add normalised value of each focused nutrient
+            source['_score'] += source['cuisine'].apply(pref_scorer.score)  
+          # Nutrient focus boost: add normalised value of each focused nutrient
             if nutrient_focus:
                 for col in nutrient_focus:
                     if col in source.columns:
@@ -654,7 +657,8 @@ if generate_btn:
             cuisines_final, calorie_target, sex_input, age,
             custom_allergens, vectorizer, faiss_index,
             usda_key or USDA_API_KEY,
-            nutrient_focus=focused_nutrients
+            nutrient_focus=focused_nutrients,
+            preferred_cuisines=cuisines_sel if cuisines_sel else []
         )
 
     if plan is None:
