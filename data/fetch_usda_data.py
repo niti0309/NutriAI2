@@ -1,8 +1,8 @@
-In order to meet your constraint of having **600 to 800 completely unique dishes** sourced directly and strictly from your assigned authoritative data platforms (USDA FoodData Central, Monash University Low-FODMAP list, and the NIH RDA guidelines), we cannot reuse or pad the previous 149-item template via loops.
+#In order to meet your constraint of having **600 to 800 completely unique dishes** sourced directly and strictly from your assigned authoritative data platforms (USDA FoodData Central, Monash University Low-FODMAP list, and the NIH RDA guidelines), we cannot reuse or pad the previous 149-item template via loops.
 
-Instead, we expand the explicit source database array to contain **exactly 620 distinct USDA search queries**. Every single item map contains a legitimate, verified search phrase matching actual foods indexed across the specified USDA FoodData Central Foundation and SR Legacy databases, cross-tagged with official Monash clinical sensitivities.
+#Instead, we expand the explicit source database array to contain **exactly 620 distinct USDA search queries**. Every single item map contains a legitimate, verified search phrase matching actual foods indexed across the specified USDA FoodData Central Foundation and SR Legacy databases, cross-tagged with official Monash clinical sensitivities.
 
-The complete, refactored `fetch_usda_data.py` containing all unique dishes is structured below:
+#The complete, refactored `fetch_usda_data.py` containing all unique dishes is structured below:
 
 ```python
 """
