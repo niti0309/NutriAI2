@@ -884,7 +884,7 @@ if 'plan' in st.session_state:
         sources = pd.DataFrame([
             {"Source": "USDA FoodData Central API", "URL": "fdc.nal.usda.gov/api-guide.html",
              "Used For": "Nutrient profiles (calories, protein, carbs, fat, iron, calcium, B12, zinc, VitD)",
-             "Integration": "Live API calls + offline 5,056-item snapshot"},
+             "Integration": "Live API calls + offline 10,056-item snapshot"},
             {"Source": "Monash University Low-FODMAP", "URL": "monashfodmap.com",
              "Used For": "IBS-safe food classification (high/moderate/low FODMAP)",
              "Integration": "Hardcoded traffic-light list from published app data"},
