@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 import os, json, time
 
-USDA_API_KEY = "DEMO_KEY"  # users can override; DEMO_KEY = 30 req/hr
+USDA_API_KEY = "0cgLd6SqV4l6qf0Xudmfyi71vnGglJMwkZaYq1ei"  # FoodData Central API key
 USDA_BASE    = "https://api.nal.usda.gov/fdc/v1"
 
 # ─────────────────────────────────────────────────────────
