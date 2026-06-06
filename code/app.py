@@ -240,21 +240,11 @@ ALLERGEN_MAP = {
 ANIMAL_ALLERGENS = {'dairy','eggs','fish','shellfish'}
 
 # ── Cross-contamination risk detection ───────────────────────────────────────────
-CROSS_CONTAM_PAIRS = {
-    'Gluten':    ['oats','shared fryer','processed','factory'],
-    'Tree Nuts': ['may contain','shared facility','traces of'],
-    'Peanuts':   ['may contain','shared facility','traces of'],
-}
+
 
 def check_cross_contamination(food_name, allergens_set):
-    """Flag potential cross-contamination risks."""
-    risks = []
-    name_lower = food_name.lower()
-    for allergen in allergens_set:
-        for term in CROSS_CONTAM_PAIRS.get(allergen, []):
-            if term in name_lower:
-                risks.append(f"⚠️ Cross-contamination risk: {allergen} ('{term}' detected)")
-    return risks
+    """Flag cross-contamination risks using FDA FALCPA-based rules."""
+    return get_cross_contam_warnings(food_name, allergens_set)
 
 # ── Is food excluded ─────────────────────────────────────────────────────────────
 def is_food_excluded(row, conditions, allergens_set, diet, custom_allergens):
